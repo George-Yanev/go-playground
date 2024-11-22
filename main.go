@@ -3,12 +3,15 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"runtime"
 	"runtime/pprof"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // const fileName = "/Users/gy/developers/go-fun/measurements.txt"
@@ -27,6 +30,9 @@ func (r record) String() string {
 }
 
 func main() {
+	// CPUs to use
+	cpus := runtime.GOMAXPROCS(runtime.NumCPU() - 1)
+
 	// Start CPU profiling
 	cpuProfile, err := os.Create("cpu.prof")
 	if err != nil {
@@ -39,7 +45,6 @@ func main() {
 	}
 	defer pprof.StopCPUProfile()
 
-	records := make(map[string]record)
 	// 1. read the file
 	// 2. Create Goroutines that do the following:
 	// - read chunk of the file and add to a data structure that can handle it. First variant - 2 routines trying to update the same record.
@@ -54,6 +59,68 @@ func main() {
 		log.Fatal("Cannot read the file: ", err)
 	}
 
+	fi, err := dh.Stat()
+	if err != nil {
+		log.Fatal("Cannot get file info", err)
+	}
+
+	fileSize := fi.Size()
+	chunkSize := fileSize / int64(cpus)
+
+	var wg sync.WaitGroup
+	intermediateResults := make([]map[string]record, cpus)
+	for i := 0; i < cpus; i++ {
+		start := int64(i) * (chunkSize + 1)
+		end := int64(i+1) * chunkSize
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			intermediateResults = append(intermediateResults, readChunk(start, end, dh))
+		}()
+		wg.Wait()
+	}
+
+	keys := make([]string, 0, len(records))
+	for key := range records {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	// fmt.Println(records)
+
+	// Print the map in the desired format directly
+	fmt.Print("{")
+	first := true
+	for _, key := range keys {
+		if !first {
+			fmt.Print(", ")
+		}
+		fmt.Print(records[key].String())
+		first = false
+	}
+	fmt.Println("}")
+}
+
+func readChunk(start int64, end int64, dh *os.File) map[string]record {
+	var bufferSize int64 = 64 * 1024
+	records := make(map[string]record)
+
+	var (
+		offset   = start
+		leftover []byte
+	)
+
+	for offset < end {
+		readSize := bufferSize
+		if offset+bufferSize > end {
+			readSize = end - offset
+		}
+		buffer := make([]byte, readSize)
+		n, err := dh.ReadAt(buffer, readSize)
+		if err != nil && err != io.EOF {
+			log.Fatalf("Couldn't ReadAt with offset %d: %v", offset, err)
+		}
+
+	}
 	ns := bufio.NewScanner(dh)
 	for ns.Scan() {
 		data := ns.Text()
@@ -93,22 +160,4 @@ func main() {
 			r.n++
 		}
 	}
-	keys := make([]string, 0, len(records))
-	for key := range records {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	// fmt.Println(records)
-
-	// Print the map in the desired format directly
-	fmt.Print("{")
-	first := true
-	for _, key := range keys {
-		if !first {
-			fmt.Print(", ")
-		}
-		fmt.Print(records[key].String())
-		first = false
-	}
-	fmt.Println("}")
 }
