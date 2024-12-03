@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,15 +21,23 @@ import (
 const fileName = "/Users/gy/developers/github.com/George-Yanev/1brc/measurements.txt"
 
 type record struct {
-	name string
-	min  float32
-	max  float32
-	mean float32
-	n    int
+	name   string
+	values []float32
+	min    float32
+	max    float32
+	mean   float32
+}
+
+func (r *record) calculateMean() float32 {
+	var sum float32
+	for _, v := range r.values {
+		sum += v
+	}
+	return sum / float32(len(r.values))
 }
 
 func (r record) String() string {
-	return fmt.Sprintf("%s=%.2f/%.2f/%.2f", r.name, r.min, r.mean, r.max)
+	return fmt.Sprintf("%s=%.2f/%.2f/%.2f", r.name, r.min, r.max, r.mean)
 }
 
 func main() {
@@ -67,71 +76,50 @@ func main() {
 	}
 
 	fileSize := fi.Size()
-	chunkSize := fileSize / int64(cpus)
-	// initial start, end of each chunk
-	startOffsets := make([]int64, cpus)
-	endOffsets := make([]int64, cpus)
-	for i := 0; i < cpus; i++ {
-		startOffsets[i] = int64(i) * chunkSize
-		if i == cpus-1 {
-			endOffsets[i] = fileSize
-		} else {
-			endOffsets[i] = int64(i+1) * chunkSize
-		}
-	}
-
-	// align startOffsets
-	for i := 0; i < cpus; i++ {
-		s, err := alignStartOffset(startOffsets[i], dh)
-		if err != nil {
-			log.Fatal("having problem with the align start offset", err)
-		}
-		startOffsets = append(startOffsets, s)
-
-	}
-
-	// align endOffsets
-	for i := 0; i < cpus; i++ {
-		e, err := alignEndOffset(startOffsets[i], dh)
-		if err != nil {
-			log.Fatal("having problem with the align end offset", err)
-		}
-		endOffsets = append(endOffsets, e)
-	}
+	b := int64(1024) * 64
+	chunks := fileSize / int64(b)
 
 	var wg sync.WaitGroup
-	intermediateResults := make([]map[string]record, cpus)
-	for i := 0; i < cpus; i++ {
-		start := startOffsets[i]
-		end := endOffsets[i]
+	results := make([]record, chunks)
+	for i := 0; i < 2*cpus; i++ {
+		start := int64(i) * int64(b)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			intermediateResults = append(intermediateResults, readChunk(start, end, dh))
+			results = append(results, readChunk(start, b, dh)...)
 		}()
 		wg.Wait()
 	}
 
-	keys := make([]string, len(intermediateResults[0]))
-	for _, m := range intermediateResults {
-		for s := range m {
-			keys = append(keys, s)
+	sort.Slice(results, func(i, j int) bool { return results[i].name < results[j].name })
+	var p record
+	var t record
+	for i, r := range results {
+		// first index, set the total to the r and set p to r
+		if i == 0 {
+			t = r
+			p = r
+			continue
 		}
-	}
-	sort.Strings(keys)
-	fmt.Println(keys)
 
-	// Print the map in the desired format directly
-	// fmt.Print("{")
-	// first := true
-	// for _, key := range keys {
-	// 	if !first {
-	// 		fmt.Print(", ")
-	// 	}
-	// 	fmt.Print(records[key].String())
-	// 	first = false
-	// }
-	// fmt.Println("}")
+		if p.name != r.name {
+			// calculate
+			slices.Sort(t.values)
+			t.min = t.values[0]
+			t.max = t.values[len(t.values)-1]
+			t.mean = t.calculateMean()
+
+			// print
+			fmt.Println(t)
+
+			// set total starting with the new record
+			t = r
+		} else {
+			t.values = append(t.values, r.values...)
+		}
+		p = r
+	}
+
 }
 
 func alignStartOffset(start int64, file *os.File) (int64, error) {
@@ -183,30 +171,26 @@ func alignEndOffset(end int64, file *os.File) (int64, error) {
 
 }
 
-func readChunk(start int64, end int64, dh *os.File) map[string]record {
-	var bufferSize int64 = 64 * 1024
-	records := make(map[string]record)
+func readChunk(start int64, size int64, dh *os.File) []record {
+	records := make([]record, 10000)
 
-	var (
-		offset = start
-	)
-
-	for offset < end {
-		readSize := bufferSize
-		if offset+bufferSize > end {
-			readSize = end - offset
-		}
-		buffer := make([]byte, readSize)
-		n, err := dh.ReadAt(buffer, readSize)
-		if err != nil && err != io.EOF {
-			log.Fatalf("Couldn't ReadAt with offset %d: %v", offset, err)
-		}
-		offset = offset + readSize
-
+	s, err := alignStartOffset(start, dh)
+	if err != nil {
+		log.Fatal("Cannot align start offset", err)
 	}
-	ns := bufio.NewScanner(dh)
-	for ns.Scan() {
-		data := ns.Text()
+	end := start + size
+	e, err := alignEndOffset(end, dh)
+
+	newSize := e - s
+	buffer := make([]byte, newSize)
+	_, err = dh.ReadAt(buffer, s)
+	if err != nil && err != io.EOF {
+		log.Fatalf("Couldn't ReadAt starting from %d: %v", start, err)
+	}
+	scanner := bufio.NewScanner(strings.NewReader(string(buffer)))
+	scanner.Split(bufio.ScanLines)
+	for scanner.Scan() {
+		data := scanner.Text()
 		parts := strings.Split(data, ";")
 		if len(parts) > 2 {
 			fmt.Println("Exit as the following records has more than 2 parts", parts)
@@ -218,29 +202,22 @@ func readChunk(start int64, end int64, dh *os.File) map[string]record {
 			os.Exit(1)
 		}
 		t := float32(temp)
-		r, exists := records[city_name]
-		if !exists {
-			records[city_name] = record{
-				name: city_name,
-				min:  t,
-				max:  t,
-				mean: t,
-				n:    1,
-			}
+		sort.Slice(records, func(i, j int) bool {
+			return records[i].name < records[j].name
+		})
+		i := sort.Search(len(records), func(i int) bool { return records[i].name == city_name })
+		if i < len(records) && records[i].name == city_name {
+			// append to values
+			records[i].values = append(records[i].values, t)
 		} else {
-			// change min if needed
-			if t < r.min {
-				r.min = t
+			r := record{
+				name:   city_name,
+				min:    t,
+				max:    t,
+				values: []float32{t},
 			}
-			// change max if needed
-			if t > r.max {
-				r.max = t
-			}
-			// calculate mean
-			r.mean = (r.mean*float32(r.n)+t)/float32(r.n) + 1
-
-			// increment processed values for this city
-			r.n++
+			records = append(records, r)
 		}
 	}
+	return records
 }
