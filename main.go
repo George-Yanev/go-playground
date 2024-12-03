@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -66,12 +68,42 @@ func main() {
 
 	fileSize := fi.Size()
 	chunkSize := fileSize / int64(cpus)
+	// initial start, end of each chunk
+	startOffsets := make([]int64, cpus)
+	endOffsets := make([]int64, cpus)
+	for i := 0; i < cpus; i++ {
+		startOffsets[i] = int64(i) * chunkSize
+		if i == cpus-1 {
+			endOffsets[i] = fileSize
+		} else {
+			endOffsets[i] = int64(i+1) * chunkSize
+		}
+	}
+
+	// align startOffsets
+	for i := 0; i < cpus; i++ {
+		s, err := alignStartOffset(startOffsets[i], dh)
+		if err != nil {
+			log.Fatal("having problem with the align start offset", err)
+		}
+		startOffsets = append(startOffsets, s)
+
+	}
+
+	// align endOffsets
+	for i := 0; i < cpus; i++ {
+		e, err := alignEndOffset(startOffsets[i], dh)
+		if err != nil {
+			log.Fatal("having problem with the align end offset", err)
+		}
+		endOffsets = append(endOffsets, e)
+	}
 
 	var wg sync.WaitGroup
 	intermediateResults := make([]map[string]record, cpus)
 	for i := 0; i < cpus; i++ {
-		start := int64(i) * (chunkSize + 1)
-		end := int64(i+1) * chunkSize
+		start := startOffsets[i]
+		end := endOffsets[i]
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -80,24 +112,75 @@ func main() {
 		wg.Wait()
 	}
 
-	keys := make([]string, 0, len(records))
-	for key := range records {
-		keys = append(keys, key)
+	keys := make([]string, len(intermediateResults[0]))
+	for _, m := range intermediateResults {
+		for s := range m {
+			keys = append(keys, s)
+		}
 	}
 	sort.Strings(keys)
-	// fmt.Println(records)
+	fmt.Println(keys)
 
 	// Print the map in the desired format directly
-	fmt.Print("{")
-	first := true
-	for _, key := range keys {
-		if !first {
-			fmt.Print(", ")
-		}
-		fmt.Print(records[key].String())
-		first = false
+	// fmt.Print("{")
+	// first := true
+	// for _, key := range keys {
+	// 	if !first {
+	// 		fmt.Print(", ")
+	// 	}
+	// 	fmt.Print(records[key].String())
+	// 	first = false
+	// }
+	// fmt.Println("}")
+}
+
+func alignStartOffset(start int64, file *os.File) (int64, error) {
+	if start == 0 {
+		return 0, nil
 	}
-	fmt.Println("}")
+
+	bufferSize := 1024 * 64
+	buffer := make([]byte, bufferSize)
+
+	for {
+		_, err := file.ReadAt(buffer, start)
+		if err != nil {
+			log.Fatalf("Error reading file at offset %d: %v", start, err)
+		}
+
+		idx := bytes.IndexByte(buffer, '\n')
+		if idx != -1 {
+			return start + int64(idx) + 1, nil
+		}
+		return -1, errors.New("Didn't find newline when adjusting the start offset")
+	}
+}
+
+func alignEndOffset(end int64, file *os.File) (int64, error) {
+	fileStat, err := file.Stat()
+	if err != nil {
+		log.Fatal("Cannot get file stat")
+	}
+	if end == fileStat.Size() {
+		return end, nil
+	}
+
+	bufferSize := 1024 * 64
+	buffer := make([]byte, bufferSize)
+
+	for {
+		_, err := file.ReadAt(buffer, end)
+		if err != nil {
+			log.Fatalf("Error reading file at offset %d: %v", end, err)
+		}
+
+		idx := bytes.IndexByte(buffer, '\n')
+		if idx != -1 {
+			return end + int64(idx), nil
+		}
+		return -1, errors.New("Didn't find newline when adjusting the start offset")
+	}
+
 }
 
 func readChunk(start int64, end int64, dh *os.File) map[string]record {
@@ -105,8 +188,7 @@ func readChunk(start int64, end int64, dh *os.File) map[string]record {
 	records := make(map[string]record)
 
 	var (
-		offset   = start
-		leftover []byte
+		offset = start
 	)
 
 	for offset < end {
@@ -119,6 +201,7 @@ func readChunk(start int64, end int64, dh *os.File) map[string]record {
 		if err != nil && err != io.EOF {
 			log.Fatalf("Couldn't ReadAt with offset %d: %v", offset, err)
 		}
+		offset = offset + readSize
 
 	}
 	ns := bufio.NewScanner(dh)
