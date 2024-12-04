@@ -77,10 +77,10 @@ func main() {
 
 	fileSize := fi.Size()
 	b := int64(1024) * 64
-	chunks := fileSize / int64(b)
+	chunks := fileSize / b
 
 	var wg sync.WaitGroup
-	results := make([]record, chunks)
+	results := make([]record, 0, chunks)
 	for i := 0; i < 2*cpus; i++ {
 		start := int64(i) * int64(b)
 		wg.Add(1)
@@ -88,8 +88,8 @@ func main() {
 			defer wg.Done()
 			results = append(results, readChunk(start, b, dh)...)
 		}()
-		wg.Wait()
 	}
+	wg.Wait()
 
 	sort.Slice(results, func(i, j int) bool { return results[i].name < results[j].name })
 	var p record
@@ -172,7 +172,7 @@ func alignEndOffset(end int64, file *os.File) (int64, error) {
 }
 
 func readChunk(start int64, size int64, dh *os.File) []record {
-	records := make([]record, 10000)
+	records := make([]record, 0, 10000)
 
 	s, err := alignStartOffset(start, dh)
 	if err != nil {
@@ -202,21 +202,13 @@ func readChunk(start int64, size int64, dh *os.File) []record {
 			os.Exit(1)
 		}
 		t := float32(temp)
-		sort.Slice(records, func(i, j int) bool {
-			return records[i].name < records[j].name
-		})
 		i := sort.Search(len(records), func(i int) bool { return records[i].name == city_name })
 		if i < len(records) && records[i].name == city_name {
 			// append to values
 			records[i].values = append(records[i].values, t)
 		} else {
-			r := record{
-				name:   city_name,
-				min:    t,
-				max:    t,
-				values: []float32{t},
-			}
-			records = append(records, r)
+			records = append(records[:i], append([]record{{name: city_name, values: []float32{t}}}, records[i:]...)...)
+
 		}
 	}
 	return records
