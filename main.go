@@ -9,31 +9,21 @@ import (
 	"log"
 	"os"
 	"runtime"
-	"runtime/pprof"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 )
 
-// const fileName = "/Users/gy/developers/go-fun/measurements.txt"
-const fileName = "/Users/gy/developers/github.com/George-Yanev/1brc/measurements.txt"
+const fileName = "/Users/gy/developers/go-fun/measurements_100k.txt"
+
+// const fileName = "/Users/gy/developers/github.com/George-Yanev/1brc/measurements.txt"
 
 type record struct {
-	name   string
-	values []float32
-	min    float32
-	max    float32
-	mean   float32
-}
-
-func (r *record) calculateMean() float32 {
-	var sum float32
-	for _, v := range r.values {
-		sum += v
-	}
-	return sum / float32(len(r.values))
+	name string
+	min  float32
+	max  float32
+	mean float32
 }
 
 func (r record) String() string {
@@ -45,16 +35,16 @@ func main() {
 	cpus := runtime.GOMAXPROCS(runtime.NumCPU() - 1)
 
 	// Start CPU profiling
-	cpuProfile, err := os.Create("cpu.prof")
-	if err != nil {
-		log.Fatal("could not create CPU profile: ", err)
-	}
-	defer cpuProfile.Close() // Ensure the file is closed after profiling
+	// cpuProfile, err := os.Create("cpu.prof")
+	// if err != nil {
+	// 	log.Fatal("could not create CPU profile: ", err)
+	// }
+	// defer cpuProfile.Close() // Ensure the file is closed after profiling
 
-	if err := pprof.StartCPUProfile(cpuProfile); err != nil {
-		log.Fatal("could not start CPU profile: ", err)
-	}
-	defer pprof.StopCPUProfile()
+	// if err := pprof.StartCPUProfile(cpuProfile); err != nil {
+	// 	log.Fatal("could not start CPU profile: ", err)
+	// }
+	// defer pprof.StopCPUProfile()
 
 	// 1. read the file
 	// 2. Create Goroutines that do the following:
@@ -76,50 +66,68 @@ func main() {
 	}
 
 	fileSize := fi.Size()
+	fmt.Println("fileSize is ", fileSize)
 	b := int64(1024) * 64
+	if b > fileSize {
+		b = fileSize
+	}
 	chunks := fileSize / b
+	fmt.Println("chinks are: ", chunks)
 
 	var wg sync.WaitGroup
-	results := make([]record, 0, chunks)
-	for i := 0; i < 2*cpus; i++ {
-		start := int64(i) * int64(b)
+	jobs := make(chan int64, chunks)
+	resultsCh := make(chan map[string][]float32, chunks)
+	for i := 0; i < cpus; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results = append(results, readChunk(start, b, dh)...)
+			for start := range jobs {
+				fmt.Println("Start is: ", start)
+				chunkRecords := readChunk(start, b, dh)
+				// fmt.Println("chunkRecords are ", chunkRecords)
+				resultsCh <- chunkRecords
+			}
 		}()
 	}
-	wg.Wait()
 
-	sort.Slice(results, func(i, j int) bool { return results[i].name < results[j].name })
-	var p record
-	var t record
-	for i, r := range results {
-		// first index, set the total to the r and set p to r
-		if i == 0 {
-			t = r
-			p = r
-			continue
-		}
-
-		if p.name != r.name {
-			// calculate
-			slices.Sort(t.values)
-			t.min = t.values[0]
-			t.max = t.values[len(t.values)-1]
-			t.mean = t.calculateMean()
-
-			// print
-			fmt.Println(t)
-
-			// set total starting with the new record
-			t = r
-		} else {
-			t.values = append(t.values, r.values...)
-		}
-		p = r
+	for i := 0; i < int(chunks); i++ {
+		start := int64(i) * b
+		jobs <- start
 	}
 
+	var results []record
+	// fmt.Println("results are: ", results)
+	var wg2 sync.WaitGroup
+	go func() {
+		wg2.Add(1)
+		defer wg2.Done()
+		for m := range resultsCh {
+			for n, r := range m {
+				var record record
+				// fmt.Println("r is", r)
+				var sum float32
+				for f := range r {
+					sum += float32(f)
+				}
+				record.name = n
+				record.min = r[0]
+				record.max = r[len(r)-1]
+				record.mean = sum / float32(len(r))
+
+				results = append(results, record)
+			}
+		}
+	}()
+
+	close(jobs)
+	wg.Wait()
+	close(resultsCh)
+	wg2.Wait()
+
+	// sort
+	sort.Slice(results, func(i, j int) bool { return results[i].name < results[j].name })
+	// print
+	fmt.Println(results)
 }
 
 func alignStartOffset(start int64, file *os.File) (int64, error) {
@@ -149,11 +157,16 @@ func alignEndOffset(end int64, file *os.File) (int64, error) {
 	if err != nil {
 		log.Fatal("Cannot get file stat")
 	}
-	if end == fileStat.Size() {
-		return end, nil
+	size := fileStat.Size()
+	if end >= size {
+		return fileStat.Size(), nil
 	}
 
-	bufferSize := 1024 * 64
+	// fmt.Println("end is ", end)
+	bufferSize := int64(1024) * 64
+	if end+int64(bufferSize) > size {
+		bufferSize = size - end
+	}
 	buffer := make([]byte, bufferSize)
 
 	for {
@@ -171,8 +184,8 @@ func alignEndOffset(end int64, file *os.File) (int64, error) {
 
 }
 
-func readChunk(start int64, size int64, dh *os.File) []record {
-	records := make([]record, 0, 10000)
+func readChunk(start int64, size int64, dh *os.File) map[string][]float32 {
+	dataMap := make(map[string][]float32)
 
 	s, err := alignStartOffset(start, dh)
 	if err != nil {
@@ -195,21 +208,13 @@ func readChunk(start int64, size int64, dh *os.File) []record {
 		if len(parts) > 2 {
 			fmt.Println("Exit as the following records has more than 2 parts", parts)
 		}
-		city_name := parts[0]
+		cityName := parts[0]
 		temp, err := strconv.ParseFloat(parts[1], 32)
 		if err != nil {
 			fmt.Println("Cannot convert string temp to float. Exit", err)
 			os.Exit(1)
 		}
-		t := float32(temp)
-		i := sort.Search(len(records), func(i int) bool { return records[i].name == city_name })
-		if i < len(records) && records[i].name == city_name {
-			// append to values
-			records[i].values = append(records[i].values, t)
-		} else {
-			records = append(records[:i], append([]record{{name: city_name, values: []float32{t}}}, records[i:]...)...)
-
-		}
+		dataMap[cityName] = append(dataMap[cityName], float32(temp))
 	}
-	return records
+	return dataMap
 }
