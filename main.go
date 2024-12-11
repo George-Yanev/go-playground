@@ -15,15 +15,16 @@ import (
 	"sync"
 )
 
-const fileName = "/Users/gy/developers/go-fun/measurements_100k.txt"
+// const fileName = "/Users/gy/developers/go-fun/measurements_100k.txt"
 
-// const fileName = "/Users/gy/developers/github.com/George-Yanev/1brc/measurements.txt"
+const fileName = "/Users/gy/developers/github.com/George-Yanev/1brc/measurements.txt"
 
 type record struct {
-	name string
-	min  float32
-	max  float32
-	mean float32
+	name  string
+	min   float32
+	max   float32
+	mean  float32
+	total int
 }
 
 func (r record) String() string {
@@ -72,7 +73,7 @@ func main() {
 		b = fileSize
 	}
 	chunks := fileSize / b
-	fmt.Println("chinks are: ", chunks)
+	fmt.Println("chunks are: ", chunks)
 
 	var wg sync.WaitGroup
 	jobs := make(chan int64, chunks)
@@ -82,7 +83,7 @@ func main() {
 		go func() {
 			defer wg.Done()
 			for start := range jobs {
-				fmt.Println("Start is: ", start)
+				// fmt.Println("Start is: ", start)
 				chunkRecords := readChunk(start, b, dh)
 				// fmt.Println("chunkRecords are ", chunkRecords)
 				resultsCh <- chunkRecords
@@ -104,7 +105,6 @@ func main() {
 		for m := range resultsCh {
 			for n, r := range m {
 				var record record
-				// fmt.Println("r is", r)
 				var sum float32
 				for f := range r {
 					sum += float32(f)
@@ -113,6 +113,7 @@ func main() {
 				record.min = r[0]
 				record.max = r[len(r)-1]
 				record.mean = sum / float32(len(r))
+				record.total = len(r)
 
 				results = append(results, record)
 			}
@@ -126,8 +127,25 @@ func main() {
 
 	// sort
 	sort.Slice(results, func(i, j int) bool { return results[i].name < results[j].name })
+	var finalResults []record
+	for i := 1; i < len(results); i++ {
+		c := results[i]
+		p := results[i-1]
+		if p.name == c.name {
+			// merge in the previous record and make the calculation
+			if p.min > c.min {
+				p.min = c.min
+			}
+			if p.max < c.max {
+				p.max = c.max
+			}
+			p.mean = (float32(p.total)*p.mean+c.mean*float32(c.total))/float32(p.total) + float32(c.total)
+		} else {
+			finalResults = append(finalResults, c)
+		}
+	}
 	// print
-	fmt.Println(results)
+	fmt.Println(finalResults)
 }
 
 func alignStartOffset(start int64, file *os.File) (int64, error) {
