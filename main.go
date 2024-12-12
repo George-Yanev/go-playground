@@ -56,6 +56,7 @@ func main() {
 	// leave it in the buffer for later and save it at the end
 	// 2. Divide it on chunks based on the cpus (fix at the beginning). Each CPU to read specific part of the file
 	// 3. go routines
+
 	dh, err := os.Open(fileName)
 	defer dh.Close()
 	if err != nil {
@@ -104,29 +105,31 @@ func main() {
 		jobs <- start
 	}
 
-	var results []record
+	var intermediateResults []record
 	// fmt.Println("results are: ", results)
 	var wg2 sync.WaitGroup
-	go func() {
-		wg2.Add(1)
-		defer wg2.Done()
-		for m := range resultsCh {
-			for n, r := range m {
-				var record record
-				var sum float32
-				for f := range r {
-					sum += float32(f)
-				}
-				record.name = n
-				record.min = r[0]
-				record.max = r[len(r)-1]
-				record.mean = sum / float32(len(r))
-				record.total = len(r)
+	for i := 0; i < cpus; i++ {
+		go func() {
+			wg2.Add(1)
+			defer wg2.Done()
+			for m := range resultsCh {
+				for n, r := range m {
+					var record record
+					var sum float32
+					for f := range r {
+						sum += float32(f)
+					}
+					record.name = n
+					record.min = r[0]
+					record.max = r[len(r)-1]
+					record.mean = sum / float32(len(r))
+					record.total = len(r)
 
-				results = append(results, record)
+					intermediateResults = append(intermediateResults, record)
+				}
 			}
-		}
-	}()
+		}()
+	}
 
 	close(jobs)
 	wg.Wait()
@@ -134,11 +137,11 @@ func main() {
 	wg2.Wait()
 
 	// sort
-	sort.Slice(results, func(i, j int) bool { return results[i].name < results[j].name })
+	sort.Slice(intermediateResults, func(i, j int) bool { return intermediateResults[i].name < intermediateResults[j].name })
 	var finalResults []record
-	for i := 1; i < len(results); i++ {
-		c := results[i]
-		p := results[i-1]
+	for i := 1; i < len(intermediateResults); i++ {
+		c := intermediateResults[i]
+		p := intermediateResults[i-1]
 		if p.name == c.name {
 			// merge in the previous record and make the calculation
 			if p.min > c.min {
