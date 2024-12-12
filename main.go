@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // const fileName = "/Users/gy/developers/go-fun/measurements_100k.txt"
@@ -78,6 +79,7 @@ func main() {
 	var wg sync.WaitGroup
 	jobs := make(chan int64, chunks)
 	resultsCh := make(chan map[string][]float32, chunks)
+	progress := atomic.Int32{}
 	for i := 0; i < cpus; i++ {
 		wg.Add(1)
 		go func() {
@@ -87,6 +89,12 @@ func main() {
 				chunkRecords := readChunk(start, b, dh)
 				// fmt.Println("chunkRecords are ", chunkRecords)
 				resultsCh <- chunkRecords
+
+				currentProgress := int32(float32(start) / float32(fileSize) * 100)
+				if currentProgress/10 > progress.Load()/10 {
+					progress.Store(currentProgress)
+					fmt.Printf("%d%%...", currentProgress)
+				}
 			}
 		}()
 	}
