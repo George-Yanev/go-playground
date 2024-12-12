@@ -7,25 +7,29 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
+	"syscall"
 )
 
 // const fileName = "/Users/gy/developers/go-fun/measurements_100k.txt"
 
-const fileName = "/Users/gy/developers/github.com/George-Yanev/1brc/measurements.txt"
+const (
+	fileName = "/Users/gy/developers/github.com/George-Yanev/1brc/measurements.txt"
+)
+
+var cpus = runtime.NumCPU()
 
 type record struct {
 	name  string
 	min   float32
 	max   float32
 	mean  float32
-	total int
+	count int
 }
 
 func (r record) String() string {
@@ -33,9 +37,6 @@ func (r record) String() string {
 }
 
 func main() {
-	// CPUs to use
-	cpus := runtime.GOMAXPROCS(runtime.NumCPU() - 1)
-
 	// Start CPU profiling
 	// cpuProfile, err := os.Create("cpu.prof")
 	// if err != nil {
@@ -70,93 +71,88 @@ func main() {
 
 	fileSize := fi.Size()
 	fmt.Println("fileSize is ", fileSize)
-	b := int64(1024) * 64
-	if b > fileSize {
-		b = fileSize
+	chunksSize := fileSize / int64(cpus)
+	fmt.Println("chunksSize are: ", chunksSize)
+	type chunk struct {
+		start int64
+		end   int64
 	}
-	chunks := fileSize / b
-	fmt.Println("chunks are: ", chunks)
+	chunks := make([]chunk, cpus)
+	for i := 0; i < cpus; i++ {
+		chunks = append(chunks, chunk{
+			start: int64(i) * int64(chunksSize),
+			end:   int64(i+1) * int64(chunksSize-1),
+		})
+	}
+	fmt.Println("chunks are ", chunks)
+	os.Exit(0)
+
+	data, err := syscall.Mmap(int(dh.Fd()), 0, int(fileSize), syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		log.Fatalf("Mmap: %v", err)
+	}
+
+	defer func() {
+		if err := syscall.Munmap(data); err != nil {
+			log.Fatalf("Munmap: %v", err)
+		}
+	}()
 
 	var wg sync.WaitGroup
-	jobs := make(chan int64, chunks)
-	resultsCh := make(chan map[string][]float32, chunks)
-	progress := atomic.Int32{}
-	for i := 0; i < cpus; i++ {
+	var results []map[string][]float32
+	// progress := atomic.Int32{}
+	for i, c := range chunks {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for start := range jobs {
-				// fmt.Println("Start is: ", start)
-				chunkRecords := readChunk(start, b, dh)
-				// fmt.Println("chunkRecords are ", chunkRecords)
-				resultsCh <- chunkRecords
+			chunkRecords := readChunk(data, c.start, c.end)
+			// fmt.Println("chunkRecords are ", chunkRecords)
+			results[i] = chunkRecords
 
-				currentProgress := int32(float32(start) / float32(fileSize) * 100)
-				if currentProgress/10 > progress.Load()/10 {
-					progress.Store(currentProgress)
-					fmt.Printf("%d%%...", currentProgress)
-				}
-			}
+			// currentProgress := int32(float32(start) / float32(fileSize) * 100)
+			// if currentProgress/10 > progress.Load()/10 {
+			// 	progress.Store(currentProgress)
+			// 	fmt.Printf("%d%%...", currentProgress)
+			// }
 		}()
 	}
-
-	for i := 0; i < int(chunks); i++ {
-		start := int64(i) * b
-		jobs <- start
-	}
-
-	var intermediateResults []record
-	// fmt.Println("results are: ", results)
-	var wg2 sync.WaitGroup
-	for i := 0; i < cpus; i++ {
-		go func() {
-			wg2.Add(1)
-			defer wg2.Done()
-			for m := range resultsCh {
-				for n, r := range m {
-					var record record
-					var sum float32
-					for f := range r {
-						sum += float32(f)
-					}
-					record.name = n
-					record.min = r[0]
-					record.max = r[len(r)-1]
-					record.mean = sum / float32(len(r))
-					record.total = len(r)
-
-					intermediateResults = append(intermediateResults, record)
-				}
-			}
-		}()
-	}
-
-	close(jobs)
 	wg.Wait()
-	close(resultsCh)
-	wg2.Wait()
 
-	// sort
-	sort.Slice(intermediateResults, func(i, j int) bool { return intermediateResults[i].name < intermediateResults[j].name })
-	var finalResults []record
-	for i := 1; i < len(intermediateResults); i++ {
-		c := intermediateResults[i]
-		p := intermediateResults[i-1]
-		if p.name == c.name {
-			// merge in the previous record and make the calculation
-			if p.min > c.min {
-				p.min = c.min
+	var fResults map[string]*record
+	// fmt.Println("results are: ", results)
+	for _, m := range results {
+		for n, v := range m {
+			if k, exists := fResults[n]; exists {
+				var sum float32
+				for _, f := range v {
+					sum += f
+				}
+				k.mean = (k.mean*float32(k.count) + sum) / (float32(k.count) + float32(len(v)))
+				k.count += len(v)
+			} else {
+				var record *record
+				var sum float32
+				record.name = n
+				record.min = math.MaxFloat32
+				record.max = math.SmallestNonzeroFloat32
+				for _, f := range v {
+					if f < record.min {
+						record.min = f
+					}
+					if f > record.max {
+						record.max = f
+					}
+					sum += f
+				}
+				record.mean = sum / float32(len(v))
+				record.count = len(v)
+
+				fResults[record.name] = record
 			}
-			if p.max < c.max {
-				p.max = c.max
-			}
-			p.mean = (float32(p.total)*p.mean+c.mean*float32(c.total))/float32(p.total) + float32(c.total)
-		} else {
-			finalResults = append(finalResults, c)
 		}
 	}
-	// print
-	fmt.Println(finalResults)
+
+	fmt.Println(fResults)
 }
 
 func alignStartOffset(start int64, file *os.File) (int64, error) {
@@ -213,7 +209,7 @@ func alignEndOffset(end int64, file *os.File) (int64, error) {
 
 }
 
-func readChunk(start int64, size int64, dh *os.File) map[string][]float32 {
+func readChunk(data []byte, start, end int64) map[string][]float32 {
 	dataMap := make(map[string][]float32)
 
 	s, err := alignStartOffset(start, dh)
