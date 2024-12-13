@@ -1,26 +1,20 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
-	"errors"
 	"fmt"
-	"io"
 	"log"
 	"math"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 )
 
-// const fileName = "/Users/gy/developers/go-fun/measurements_100k.txt"
+const fileName = "/Users/gy/developers/go-fun/measurements_100k.txt"
 
-const (
-	fileName = "/Users/gy/developers/github.com/George-Yanev/1brc/measurements.txt"
-)
+// fileName = "/Users/gy/developers/github.com/George-Yanev/1brc/measurements.txt"
 
 var cpus = runtime.NumCPU()
 
@@ -130,7 +124,7 @@ func main() {
 				k.mean = (k.mean*float32(k.count) + sum) / (float32(k.count) + float32(len(v)))
 				k.count += len(v)
 			} else {
-				var record *record
+				var record *record = new(record)
 				var sum float32
 				record.name = n
 				record.min = math.MaxFloat32
@@ -152,94 +146,71 @@ func main() {
 		}
 	}
 
-	fmt.Println(fResults)
-}
-
-func alignStartOffset(start int64, file *os.File) (int64, error) {
-	if start == 0 {
-		return 0, nil
+	// get only the names
+	var names []string
+	for k, _ := range fResults {
+		names = append(names, k)
 	}
+	sort.Strings(names)
 
-	bufferSize := 1024 * 64
-	buffer := make([]byte, bufferSize)
-
-	for {
-		_, err := file.ReadAt(buffer, start)
-		if err != nil {
-			log.Fatalf("Error reading file at offset %d: %v", start, err)
-		}
-
-		idx := bytes.IndexByte(buffer, '\n')
-		if idx != -1 {
-			return start + int64(idx) + 1, nil
-		}
-		return -1, errors.New("Didn't find newline when adjusting the start offset")
+	for _, n := range names {
+		fmt.Println(fResults[n])
 	}
-}
-
-func alignEndOffset(end int64, file *os.File) (int64, error) {
-	fileStat, err := file.Stat()
-	if err != nil {
-		log.Fatal("Cannot get file stat")
-	}
-	size := fileStat.Size()
-	if end >= size {
-		return fileStat.Size(), nil
-	}
-
-	// fmt.Println("end is ", end)
-	bufferSize := int64(1024) * 64
-	if end+int64(bufferSize) > size {
-		bufferSize = size - end
-	}
-	buffer := make([]byte, bufferSize)
-
-	for {
-		_, err := file.ReadAt(buffer, end)
-		if err != nil {
-			log.Fatalf("Error reading file at offset %d: %v", end, err)
-		}
-
-		idx := bytes.IndexByte(buffer, '\n')
-		if idx != -1 {
-			return end + int64(idx), nil
-		}
-		return -1, errors.New("Didn't find newline when adjusting the start offset")
-	}
-
+	// fmt.Println(fResults)
 }
 
 func readChunk(data []byte, start, end int64) map[string][]float32 {
 	dataMap := make(map[string][]float32)
 
-	s, err := alignStartOffset(start, dh)
-	if err != nil {
-		log.Fatal("Cannot align start offset", err)
+	if start != 0 {
+		lookAhead := 50
+		d := data[start-1 : start+int64(lookAhead)]
+		for i, s := range d {
+			if s == '\n' && i == 0 {
+				break
+			}
+			if s == '\n' {
+				start += int64(i)
+			}
+		}
 	}
-	end := start + size
-	e, err := alignEndOffset(end, dh)
 
-	newSize := e - s
-	buffer := make([]byte, newSize)
-	_, err = dh.ReadAt(buffer, s)
-	if err != nil && err != io.EOF {
-		log.Fatalf("Couldn't ReadAt starting from %d: %v", start, err)
+	if end != int64(len(data)) {
+		lookAhead := 50
+		d := data[end : end+int64(lookAhead)]
+		for i, s := range d {
+			if s == '\n' && i == 0 {
+				break
+			}
+			if s == '\n' {
+				end += int64(i)
+			}
+		}
 	}
-	scanner := bufio.NewScanner(strings.NewReader(string(buffer)))
-	scanner.Split(bufio.ScanLines)
-	for scanner.Scan() {
-		data := scanner.Text()
-		parts := strings.Split(data, ";")
-		if len(parts) > 2 {
-			fmt.Println("Exit as the following records has more than 2 parts", parts)
+
+	var newStart int
+	chunkContent := data[newStart:end]
+	for i, b := range chunkContent {
+		if b == '\n' {
+			line := chunkContent[newStart:i]
+			for j, c := range line {
+				if c == ';' {
+					city := string(line[0 : j-1])
+					temp := string(line[j+1:])
+					t, err := strconv.ParseFloat(temp, 32)
+					if err != nil {
+						fmt.Println("Error parsing float:", err)
+					}
+
+					if f, ok := dataMap[city]; !ok {
+						dataMap[city] = []float32{float32(t)}
+					} else {
+						f = append(f, float32(t))
+					}
+				}
+
+			}
 		}
-		cityName := parts[0]
-		temp, err := strconv.ParseFloat(parts[1], 32)
-		if err != nil {
-			fmt.Println("Cannot convert string temp to float. Exit", err)
-			os.Exit(1)
-		}
-		dataMap[cityName] = append(dataMap[cityName], float32(temp))
 	}
 	return dataMap
 }
