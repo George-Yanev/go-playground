@@ -8,11 +8,13 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 )
 
-const fileName = "/Users/gy/developers/go-fun/measurements_100k.txt"
+// const fileName = "/Users/gy/developers/go-fun/measurements_100k.txt"
+const fileName = "/Users/gy/developers/go-fun/measurements.txt"
 
 // fileName = "/Users/gy/developers/github.com/George-Yanev/1brc/measurements.txt"
 
@@ -78,8 +80,9 @@ func main() {
 			end:   int64(i+1) * int64(chunksSize),
 		})
 	}
+	chunks[len(chunks)-1].end = fileSize
 	fmt.Println("chunks are ", chunks)
-	os.Exit(1)
+	// os.Exit(1)
 
 	data, err := syscall.Mmap(int(dh.Fd()), 0, int(fileSize), syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
@@ -93,7 +96,7 @@ func main() {
 	}()
 
 	var wg sync.WaitGroup
-	var results []map[string][]float32
+	var results = make([]map[string][]float32, cpus)
 	// progress := atomic.Int32{}
 	for i, c := range chunks {
 		wg.Add(1)
@@ -168,17 +171,19 @@ func readChunk(data []byte, start, end int64) map[string][]float32 {
 		for i, s := range d {
 			if s == '\n' {
 				start += int64(i + 1)
+				break
 			}
 		}
 	}
 
-	fmt.Println("date []byte length: ", len(data))
+	fmt.Printf("start - %d, end - %d\n", start, end)
 	if end != int64(len(data)) {
 		lookAhead := 50
 		d := data[end : end+int64(lookAhead)]
 		for i, s := range d {
 			if s == '\n' {
 				end += int64(i)
+				break
 			}
 		}
 	}
@@ -188,23 +193,21 @@ func readChunk(data []byte, start, end int64) map[string][]float32 {
 	for i, b := range chunkContent {
 		if b == '\n' {
 			line := chunkContent[newStart:i]
-			for j, c := range line {
-				if c == ';' {
-					city := string(line[0 : j-1])
-					temp := string(line[j+1:])
-					t, err := strconv.ParseFloat(temp, 32)
-					if err != nil {
-						fmt.Println("Error parsing float:", err)
-					}
+			ct := strings.Split(string(line), ";")
+			city := ct[0]
+			temp := ct[1]
 
-					if f, ok := dataMap[city]; !ok {
-						dataMap[city] = []float32{float32(t)}
-					} else {
-						f = append(f, float32(t))
-					}
-				}
-
+			t, err := strconv.ParseFloat(temp, 32)
+			if err != nil {
+				fmt.Println("Error parsing float:", err)
 			}
+
+			if f, ok := dataMap[city]; !ok {
+				dataMap[city] = []float32{float32(t)}
+			} else {
+				f = append(f, float32(t))
+			}
+			newStart = i + 1
 		}
 	}
 	return dataMap
