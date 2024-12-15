@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"runtime/pprof"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,9 +15,11 @@ import (
 )
 
 // const fileName = "/Users/gy/developers/go-fun/measurements_100k.txt"
-const fileName = "/Users/gy/developers/go-fun/measurements.txt"
+const fileName = "/Users/gy/developers/go-fun/measurements_100M.txt"
 
-// fileName = "/Users/gy/developers/github.com/George-Yanev/1brc/measurements.txt"
+// const fileName = "/Users/gy/developers/go-fun/measurements.txt"
+
+// const fileName = "/Users/gy/developers/github.com/George-Yanev/1brc/measurements.txt"
 
 var cpus = runtime.NumCPU()
 
@@ -34,16 +37,16 @@ func (r record) String() string {
 
 func main() {
 	// Start CPU profiling
-	// cpuProfile, err := os.Create("cpu.prof")
-	// if err != nil {
-	// 	log.Fatal("could not create CPU profile: ", err)
-	// }
-	// defer cpuProfile.Close() // Ensure the file is closed after profiling
+	cpuProfile, err := os.Create("cpu.prof")
+	if err != nil {
+		log.Fatal("could not create CPU profile: ", err)
+	}
+	defer cpuProfile.Close() // Ensure the file is closed after profiling
 
-	// if err := pprof.StartCPUProfile(cpuProfile); err != nil {
-	// 	log.Fatal("could not start CPU profile: ", err)
-	// }
-	// defer pprof.StopCPUProfile()
+	if err := pprof.StartCPUProfile(cpuProfile); err != nil {
+		log.Fatal("could not start CPU profile: ", err)
+	}
+	defer pprof.StopCPUProfile()
 
 	// 1. read the file
 	// 2. Create Goroutines that do the following:
@@ -202,10 +205,10 @@ func readChunk(data []byte, start, end int64) map[string][]float32 {
 				fmt.Println("Error parsing float:", err)
 			}
 
-			if f, ok := dataMap[city]; !ok {
+			if f, exists := dataMap[city]; !exists {
 				dataMap[city] = []float32{float32(t)}
 			} else {
-				f = append(f, float32(t))
+				dataMap[city] = append(f, float32(t))
 			}
 			newStart = i + 1
 		}
