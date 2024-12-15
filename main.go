@@ -71,15 +71,15 @@ func main() {
 		start int64
 		end   int64
 	}
-	chunks := make([]chunk, cpus)
+	chunks := make([]chunk, 0, cpus)
 	for i := 0; i < cpus; i++ {
 		chunks = append(chunks, chunk{
 			start: int64(i) * int64(chunksSize),
-			end:   int64(i+1) * int64(chunksSize-1),
+			end:   int64(i+1) * int64(chunksSize),
 		})
 	}
 	fmt.Println("chunks are ", chunks)
-	os.Exit(0)
+	os.Exit(1)
 
 	data, err := syscall.Mmap(int(dh.Fd()), 0, int(fileSize), syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
@@ -112,7 +112,7 @@ func main() {
 	}
 	wg.Wait()
 
-	var fResults map[string]*record
+	var fResults = make(map[string]*record)
 	// fmt.Println("results are: ", results)
 	for _, m := range results {
 		for n, v := range m {
@@ -148,8 +148,8 @@ func main() {
 
 	// get only the names
 	var names []string
-	for k, _ := range fResults {
-		names = append(names, k)
+	for c := range fResults {
+		names = append(names, c)
 	}
 	sort.Strings(names)
 
@@ -164,24 +164,19 @@ func readChunk(data []byte, start, end int64) map[string][]float32 {
 
 	if start != 0 {
 		lookAhead := 50
-		d := data[start-1 : start+int64(lookAhead)]
+		d := data[start : start+int64(lookAhead)]
 		for i, s := range d {
-			if s == '\n' && i == 0 {
-				break
-			}
 			if s == '\n' {
-				start += int64(i)
+				start += int64(i + 1)
 			}
 		}
 	}
 
+	fmt.Println("date []byte length: ", len(data))
 	if end != int64(len(data)) {
 		lookAhead := 50
 		d := data[end : end+int64(lookAhead)]
 		for i, s := range d {
-			if s == '\n' && i == 0 {
-				break
-			}
 			if s == '\n' {
 				end += int64(i)
 			}
