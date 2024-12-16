@@ -27,7 +27,7 @@ type record struct {
 	name  string
 	min   float32
 	max   float32
-	mean  float32
+	sum   float32
 	count int
 }
 
@@ -99,7 +99,7 @@ func main() {
 	}()
 
 	var wg sync.WaitGroup
-	var results = make([]map[string][]float32, cpus)
+	var results = make([]map[string]*record, cpus)
 	// progress := atomic.Int32{}
 	for i, c := range chunks {
 		wg.Add(1)
@@ -165,8 +165,8 @@ func main() {
 	// fmt.Println(fResults)
 }
 
-func readChunk(data []byte, start, end int64) map[string][]float32 {
-	dataMap := make(map[string][]float32)
+func readChunk(data []byte, start, end int64) map[string]*record {
+	dataRecords := make(map[string]*record)
 
 	if start != 0 {
 		lookAhead := 50
@@ -205,13 +205,17 @@ func readChunk(data []byte, start, end int64) map[string][]float32 {
 				fmt.Println("Error parsing float:", err)
 			}
 
-			if f, exists := dataMap[city]; !exists {
-				dataMap[city] = []float32{float32(t)}
+			if r, exists := dataRecords[city]; !exists {
+				dataRecords[city] = &record{
+					sum:   float32(t),
+					count: 1,
+				}
 			} else {
-				dataMap[city] = append(f, float32(t))
+				r.sum += float32(t)
+				r.count += 1
 			}
 			newStart = i + 1
 		}
 	}
-	return dataMap
+	return dataRecords
 }
