@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"math"
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -24,11 +23,8 @@ const fileName = "/Users/gy/developers/go-fun/measurements_100M.txt"
 var cpus = runtime.NumCPU()
 
 type record struct {
-	name  string
-	min   float32
-	max   float32
-	sum   float32
-	count int
+	min, max, mean, sum float32
+	count               int
 }
 
 func (r record) String() string {
@@ -118,49 +114,38 @@ func main() {
 	}
 	wg.Wait()
 
-	var fResults = make(map[string]*record)
 	// fmt.Println("results are: ", results)
-	for _, m := range results {
-		for n, v := range m {
-			if k, exists := fResults[n]; exists {
-				var sum float32
-				for _, f := range v {
-					sum += f
+	finalMap := results[len(results)]
+	for i := 0; i < len(results)-1; i++ {
+		currMap := results[i]
+		for s, r := range currMap {
+			if fRecord, exists := finalMap[s]; exists {
+				if r.min < fRecord.min {
+					fRecord.min = r.min
 				}
-				k.mean = (k.mean*float32(k.count) + sum) / (float32(k.count) + float32(len(v)))
-				k.count += len(v)
+				if r.max > fRecord.max {
+					fRecord.max = r.max
+				}
+				fRecord.count += r.count
+				fRecord.sum += r.sum
+				fRecord.mean = r.sum / float32(r.count)
+				delete(currMap, s)
 			} else {
-				var record *record = new(record)
-				var sum float32
-				record.name = n
-				record.min = math.MaxFloat32
-				record.max = math.SmallestNonzeroFloat32
-				for _, f := range v {
-					if f < record.min {
-						record.min = f
-					}
-					if f > record.max {
-						record.max = f
-					}
-					sum += f
-				}
-				record.mean = sum / float32(len(v))
-				record.count = len(v)
-
-				fResults[record.name] = record
+				finalMap[s] = r
 			}
 		}
+
 	}
 
 	// get only the names
 	var names []string
-	for c := range fResults {
+	for c := range finalMap {
 		names = append(names, c)
 	}
 	sort.Strings(names)
 
 	for _, n := range names {
-		fmt.Println(fResults[n])
+		fmt.Println(finalMap[n])
 	}
 	// fmt.Println(fResults)
 }
