@@ -14,13 +14,14 @@ import (
 )
 
 // const fileName = "/Users/gy/developers/go-fun/measurements_100k.txt"
+
 const fileName = "/Users/gy/developers/go-fun/measurements_100M.txt"
 
 // const fileName = "/Users/gy/developers/go-fun/measurements.txt"
 
 // const fileName = "/Users/gy/developers/github.com/George-Yanev/1brc/measurements.txt"
 
-var cpus = runtime.NumCPU()
+var cpus = runtime.NumCPU() - 1
 
 type record struct {
 	min, max, mean, sum float32
@@ -28,7 +29,7 @@ type record struct {
 }
 
 func (r record) String() string {
-	return fmt.Sprintf("%s=%.2f/%.2f/%.2f", r.name, r.min, r.max, r.mean)
+	return fmt.Sprintf("%.2f/%.2f/%.2f", r.min, r.max, r.mean)
 }
 
 func main() {
@@ -115,7 +116,7 @@ func main() {
 	wg.Wait()
 
 	// fmt.Println("results are: ", results)
-	finalMap := results[len(results)]
+	finalMap := results[len(results)-1]
 	for i := 0; i < len(results)-1; i++ {
 		currMap := results[i]
 		for s, r := range currMap {
@@ -129,7 +130,7 @@ func main() {
 				fRecord.count += r.count
 				fRecord.sum += r.sum
 				fRecord.mean = r.sum / float32(r.count)
-				delete(currMap, s)
+				// delete(currMap, s)
 			} else {
 				finalMap[s] = r
 			}
@@ -145,7 +146,7 @@ func main() {
 	sort.Strings(names)
 
 	for _, n := range names {
-		fmt.Println(finalMap[n])
+		fmt.Printf("%s=%s\n", n, finalMap[n])
 	}
 	// fmt.Println(fResults)
 }
@@ -189,15 +190,24 @@ func readChunk(data []byte, start, end int64) map[string]*record {
 			if err != nil {
 				fmt.Println("Error parsing float:", err)
 			}
+			tf := float32(t)
 
 			if r, exists := dataRecords[city]; !exists {
 				dataRecords[city] = &record{
-					sum:   float32(t),
+					sum:   tf,
 					count: 1,
+					min:   tf,
+					max:   tf,
 				}
 			} else {
-				r.sum += float32(t)
+				r.sum += tf
 				r.count += 1
+				if r.min > tf {
+					r.min = tf
+				}
+				if r.max < tf {
+					r.max = tf
+				}
 			}
 			newStart = i + 1
 		}
