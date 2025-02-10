@@ -18,7 +18,7 @@ type Item struct {
 type Store struct {
 	mu    sync.RWMutex
 	items map[string]Item
-	TTL   int64
+	TTL   time.Duration
 	cache *cache.Cache
 }
 
@@ -42,7 +42,7 @@ func (s *Store) Set(key string, value interface{}) {
 
 	s.items[key] = Item{
 		Value:      value,
-		Expiration: time.Now().UnixMilli() + s.TTL,
+		Expiration: time.Now().UnixMilli() + s.TTL.Milliseconds(),
 	}
 }
 
@@ -57,7 +57,7 @@ func (s *Store) Delete(key string) {
 	}
 }
 
-func New(ttl int64) *Store {
+func New(ttl time.Duration) *Store {
 	s := &Store{
 		items: make(map[string]Item),
 		TTL:   ttl,
