@@ -2,8 +2,7 @@ package store
 
 import (
 	"sync"
-
-	"github.com/George-Yanev/go-fun/internal/cache"
+	"time"
 )
 
 // Prune mechanism
@@ -17,24 +16,30 @@ type Item struct {
 type Store struct {
 	mu    sync.RWMutex
 	items map[string]Item
-	cache *cache.Cache
+	TTL   int64
 }
 
 func (s *Store) Get(key string) (Item, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	item, ok := s.items[key]
-	return item, ok
+	if item, ok := s.items[key]; ok {
+		if item.Expiration > time.Now().UnixMilli() {
+			return item, ok
+		}
+		// if expired, delete it
+		delete(s.items, key)
+	}
+	return Item{}, false
 }
 
-func (s *Store) Set(key string, value interface{}, expiration int64) {
+func (s *Store) Set(key string, value interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.items[key] = Item{
 		Value:      value,
-		Expiration: expiration,
+		Expiration: time.Now().UnixMilli() + s.TTL,
 	}
 }
 
@@ -42,12 +47,16 @@ func (s *Store) Delete(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	delete(s.items, key)
+	if item, ok := s.items[key]; ok {
+		if item.Expiration < time.Now().UnixMilli() {
+			delete(s.items, key)
+		}
+	}
 }
 
 func New(ttl int64) *Store {
 	return &Store{
 		items: make(map[string]Item),
-		cache: cache.New(ttl),
+		TTL:   ttl,
 	}
 }
