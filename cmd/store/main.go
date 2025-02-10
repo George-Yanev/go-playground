@@ -9,6 +9,7 @@ import (
 func main() {
 	store := store.New(int64(100))
 	store.Set("test", 64)
+	store.Set("test2", 12)
 	item, exists := store.Get("test")
 	fmt.Printf("exists: %t, value: %+v\n", exists, item)
 }
