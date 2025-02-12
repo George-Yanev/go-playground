@@ -1,23 +1,32 @@
 package cache
 
-func (c *Cache) Len() int { return len(c.Cache) }
-
-func (c *Cache) Less(i, j int) bool {
-	return c.Cache[i].Expiration < c.Cache[j].Expiration
+type CacheItem struct {
+	Key        string
+	Expiration int64
 }
 
-func (c *Cache) Swap(i, j int) {
-	c.Cache[i], c.Cache[j] = c.Cache[j], c.Cache[i]
+type cacheHeap struct {
+	items []CacheItem
 }
 
-func (c *Cache) Push(x any) {
+func (c *cacheHeap) Len() int { return len(c.items) }
+
+func (c *cacheHeap) Less(i, j int) bool {
+	return c.items[i].Expiration < c.items[j].Expiration
+}
+
+func (c *cacheHeap) Swap(i, j int) {
+	c.items[i], c.items[j] = c.items[j], c.items[i]
+}
+
+func (c *cacheHeap) Push(x any) {
 	item := x.(CacheItem)
-	c.Cache = append(c.Cache, item)
+	c.items = append(c.items, item)
 }
 
-func (c *Cache) Pop() any {
-	l := c.Cache[len(c.Cache)-1]
-	c.Cache = c.Cache[:len(c.Cache)-1]
+func (c *cacheHeap) Pop() any {
+	l := c.items[len(c.items)-1]
+	c.items = c.items[:len(c.items)-1]
 
 	return l
 }

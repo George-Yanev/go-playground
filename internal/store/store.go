@@ -19,7 +19,7 @@ type Store struct {
 	mu    sync.RWMutex
 	items map[string]Item
 	TTL   time.Duration
-	cache *cache.Cache
+	cache cache.Cache
 }
 
 func (s *Store) Get(key string) (Item, bool) {
@@ -40,10 +40,12 @@ func (s *Store) Set(key string, value interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	expiration := time.Now().UnixMilli() + s.TTL.Milliseconds()
 	s.items[key] = Item{
 		Value:      value,
-		Expiration: time.Now().UnixMilli() + s.TTL.Milliseconds(),
+		Expiration: expiration,
 	}
+	s.cache.Add(key, expiration)
 }
 
 func (s *Store) Delete(key string) {
