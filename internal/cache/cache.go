@@ -49,7 +49,7 @@ func newHeapCache(onEviction func(key string)) *heapCache {
 		onEviction: onEviction,
 	}
 	heap.Init(c.heap)
-	c.removeExpiredItems(1 * time.Second)
+	c.removeExpiredItems(100 * time.Millisecond)
 	return c
 
 }

@@ -13,6 +13,7 @@ import (
 type Item struct {
 	Value      interface{}
 	Expiration int64
+	Count      int
 }
 
 type Store struct {
@@ -27,24 +28,32 @@ func (s *Store) Get(key string) (Item, bool) {
 	defer s.mu.RUnlock()
 
 	if item, ok := s.items[key]; ok {
-		if item.Expiration > time.Now().UnixMilli() {
-			return item, ok
-		}
-		// if expired, delete it
-		delete(s.items, key)
+		s.setOrUpdate(key, item.Value)
+		return item, ok
 	}
 	return Item{}, false
+}
+
+func (s *Store) setOrUpdate(key string, value interface{}) int64 {
+	expiration := time.Now().UnixMilli() + s.TTL.Milliseconds()
+	if item, ok := s.items[key]; !ok {
+		s.items[key] = Item{
+			Value:      value,
+			Expiration: expiration,
+		}
+	} else {
+		item.Expiration = expiration
+		item.Count += 1
+	}
+
+	return expiration
 }
 
 func (s *Store) Set(key string, value interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	expiration := time.Now().UnixMilli() + s.TTL.Milliseconds()
-	s.items[key] = Item{
-		Value:      value,
-		Expiration: expiration,
-	}
+	expiration := s.setOrUpdate(key, value)
 	s.cache.Add(key, expiration)
 }
 
@@ -53,6 +62,10 @@ func (s *Store) Delete(key string) {
 	defer s.mu.Unlock()
 
 	if item, ok := s.items[key]; ok {
+		if item.Count > 0 {
+			item.Count -= 1
+			return
+		}
 		if item.Expiration < time.Now().UnixMilli() {
 			delete(s.items, key)
 		}

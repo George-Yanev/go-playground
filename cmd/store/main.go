@@ -10,6 +10,7 @@ import (
 func main() {
 	store := store.New(1 * time.Second)
 	store.Set("test", 64)
+	store.Set("test", 64)
 	store.Set("test2", 12)
 	item, exists := store.Get("test")
 	fmt.Printf("Before sleep - exists: %t, value: %+v\n", exists, item)
