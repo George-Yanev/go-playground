@@ -16,7 +16,7 @@ func main() {
 	workCh := make(chan urlshortener.WorkRequest)
 	seedCh := make(chan urlshortener.SeedRequest)
 
-	go urlshortener.Manager(seedCh)
+	go urlshortener.Manager(db, seedCh)
 	urlshortener.StartWorkers(db, workCh, seedCh, 10)
 	urlshortener.StartHttpServer(workCh)
 }

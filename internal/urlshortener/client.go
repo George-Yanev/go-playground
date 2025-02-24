@@ -4,7 +4,10 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"strconv"
+
+	"github.com/google/uuid"
 )
 
 type Seed struct {
@@ -32,16 +35,17 @@ type URLRequest struct {
 	OriginalURL string `json:"original_url"`
 }
 
-func Manager(reqCh <-chan SeedRequest) {
+func Manager(db *sql.DB, reqCh <-chan SeedRequest) {
+	seedsDb := NewSeedsDb(db)
+
 	for req := range reqCh {
-		// db connection to take seed
-		// if seed is not available, ask for one
-		s := Seed{
-			Seed:    "test",
-			Counter: 0,
+		seed, err := seedsDb.Acquire(req.Query)
+		if err != nil {
+			log.Printf("Error acquiring seed: %v\n", err)
 		}
 
-		req.ReplyCn <- s
+		log.Printf("Client: %s acquired Seed: %v\n", req.Query, seed)
+		req.ReplyCn <- seed
 	}
 }
 
@@ -49,10 +53,11 @@ func StartWorkers(db *sql.DB, workCh <-chan WorkRequest, seedCh chan<- SeedReque
 	for i := 0; i < numWorkers; i++ {
 		go func() {
 			var seed Seed
+			leaseHolderID := uuid.New().String()
 
 			responseCh := make(chan Seed)
 			request := SeedRequest{
-				Query:   "test",
+				Query:   leaseHolderID,
 				ReplyCn: responseCh,
 			}
 
@@ -62,9 +67,9 @@ func StartWorkers(db *sql.DB, workCh <-chan WorkRequest, seedCh chan<- SeedReque
 					seed = <-responseCh
 				}
 				// generate short string
-				short_url := base64.URLEncoding.EncodeToString([]byte(seed.Seed + strconv.Itoa(seed.Counter)))
+				shortUrl := base64.URLEncoding.EncodeToString([]byte(seed.Seed + strconv.Itoa(seed.Counter)))
 				table := UrlMapping{db: db}
-				err := table.Create(work.OriginalUrl, short_url, seed.Seed, seed.Counter)
+				err := table.Create(work.OriginalUrl, shortUrl, seed.Seed, seed.Counter)
 				if err != nil {
 					fmt.Printf("Unable to write to url_mapping. Error: %v", err)
 				}

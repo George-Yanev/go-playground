@@ -43,6 +43,33 @@ func (s *SeedsDb) Create(seed string) error {
 	return err
 }
 
+func (s *SeedsDb) Acquire(holder string) (Seed, error) {
+	var acquiredSeed Seed
+
+	query := `
+UPDATE seeds
+SET
+    status = 1,
+    lease_holder = ?,
+    lease_taken = datetime('now')
+WHERE
+    status = 0
+ORDER BY
+    lease_taken ASC NULLS LAST
+LIMIT 1
+RETURNING seed, counter_used
+`
+	err := s.db.QueryRow(query, holder).Scan(acquiredSeed)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return Seed{}, fmt.Errorf("No seeds available for acquisition")
+		}
+		return Seed{}, fmt.Errorf("Failed to acquire seed: %w", err)
+	}
+
+	return acquiredSeed, nil
+}
+
 func InitDB() (*sql.DB, error) {
 	db, err := sql.Open("sqlite3", "file:urlshortener.db")
 	if err != nil {

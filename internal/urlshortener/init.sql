@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS seeds (
     counter_size INTEGER NOT NULL DEFAULT 4096,
     counter_used INTEGER NOT NULL DEFAULT 0,
     lease_holder TEXT DEFAULT '',
-    lease_taken DATETIME DEFAULT CURRENT_TIMESTAMP,
+    lease_taken DATETIME NULL,
     status INTEGER NOT NULL DEFAULT 0 CHECK (status IN (0, 1, 2)) -- available|used|exhausted
 );
 
