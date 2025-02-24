@@ -23,8 +23,9 @@ type SeedRequest struct {
 }
 
 type WorkRequest struct {
-	OriginalUrl string
-	DoneChan    chan WorkResult
+	OriginalUrl  string
+	ShortUrlHost string
+	DoneCh       chan<- WorkResult
 }
 
 type WorkResult struct {
@@ -67,13 +68,20 @@ func StartWorkers(db *sql.DB, workCh <-chan WorkRequest, seedCh chan<- SeedReque
 					seed = <-responseCh
 				}
 				// generate short string
-				shortUrl := base64.URLEncoding.EncodeToString([]byte(seed.Seed + strconv.Itoa(seed.Counter)))
-				table := UrlMapping{db: db}
-				err := table.Create(work.OriginalUrl, shortUrl, seed.Seed, seed.Counter)
+				shortUrlString := base64.URLEncoding.EncodeToString([]byte(seed.Seed + strconv.Itoa(seed.Counter)))
+				shortUrl := fmt.Sprintf("https://%s/%s", work.ShortUrlHost, shortUrlString)
+				um := UrlMapping{db: db}
+				err := um.Create(work.OriginalUrl, shortUrl, seed.Seed, seed.Counter)
 				if err != nil {
 					fmt.Printf("Unable to write to url_mapping. Error: %v", err)
 				}
-				close(work.DoneChan)
+				seed.Counter += 1
+
+				wr := WorkResult{
+					ShortUrl: shortUrl,
+				}
+				work.DoneCh <- wr
+				close(work.DoneCh)
 			}
 		}()
 	}
