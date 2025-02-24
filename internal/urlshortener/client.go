@@ -3,12 +3,16 @@ package urlshortener
 import (
 	"database/sql"
 	"encoding/base64"
+	"fmt"
+	"strconv"
 )
 
 type Seed struct {
-	seed    string
-	counter int
+	Seed    string
+	Counter int
 }
+
+type Seeds []Seed
 
 type SeedRequest struct {
 	Query   string
@@ -17,7 +21,11 @@ type SeedRequest struct {
 
 type WorkRequest struct {
 	OriginalUrl string
-	DoneChan    chan struct{}
+	DoneChan    chan WorkResult
+}
+
+type WorkResult struct {
+	ShortUrl string
 }
 
 type URLRequest struct {
@@ -25,18 +33,16 @@ type URLRequest struct {
 }
 
 func Manager(reqCh <-chan SeedRequest) {
-	req := <-reqCh
+	for req := range reqCh {
+		// db connection to take seed
+		// if seed is not available, ask for one
+		s := Seed{
+			seed:    "test",
+			counter: 0,
+		}
 
-	// db connection to take seed
-	// if seed is not available, ask for one
-	s := Seed{
-		seed:    "test",
-		counter: 0,
+		req.ReplyCn <- s
 	}
-
-	req.ReplyCn <- s
-
-	// check if we have enough seeds
 }
 
 func StartWorkers(db *sql.DB, workCh <-chan WorkRequest, seedCh chan<- SeedRequest, numWorkers int) {
@@ -56,8 +62,12 @@ func StartWorkers(db *sql.DB, workCh <-chan WorkRequest, seedCh chan<- SeedReque
 					seed = <-responseCh
 				}
 				// generate short string
-				encoded := base64.NewEncoding(seed.seed + string(seed.counter))
-				processWork(encoded)
+				short_url := base64.URLEncoding.EncodeToString([]byte(seed.seed + strconv.Itoa(seed.counter)))
+				table := UrlMapping{db: db}
+				err := table.Create(work.OriginalUrl, short_url, seed.seed, seed.counter)
+				if err != nil {
+					fmt.Printf("Unable to write to url_mapping. Error: %v", err)
+				}
 				close(work.DoneChan)
 			}
 		}()

@@ -13,17 +13,17 @@ func StartHttpServer(workCh chan<- WorkRequest) {
 		fmt.Printf("got / request\n")
 
 		req := URLRequest{}
-		json.NewDecoder(r.Body).Decode(req)
+		json.NewDecoder(r.Body).Decode(&req)
 
-		doneCh := make(chan struct{}, 1)
+		doneCh := make(chan WorkResult, 1)
 
 		work := WorkRequest{
 			OriginalUrl: req.OriginalURL,
 			DoneChan:    doneCh,
 		}
 		workCh <- work
-		<-doneCh
-		io.WriteString(w, "Done!\n")
+		result := <-doneCh
+		io.WriteString(w, result.ShortUrl)
 
 	})
 
