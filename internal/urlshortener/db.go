@@ -54,12 +54,16 @@ SET
     lease_taken = datetime('now')
 WHERE
     status = 0
-ORDER BY
-    lease_taken ASC NULLS LAST
-LIMIT 1
+    AND rowid = (
+        SELECT rowid
+        FROM seeds
+        WHERE status = 0
+        ORDER BY lease_taken ASC NULLS LAST
+        LIMIT 1
+    )
 RETURNING seed, counter_used
 `
-	err := s.db.QueryRow(query, holder).Scan(acquiredSeed)
+	err := s.db.QueryRow(query, holder).Scan(&acquiredSeed.Seed, &acquiredSeed.Counter)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return Seed{}, fmt.Errorf("No seeds available for acquisition")
