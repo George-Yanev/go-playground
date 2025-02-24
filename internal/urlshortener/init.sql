@@ -3,7 +3,7 @@ PRAGMA journal_mode = WAL;
 
 -- Seeds Table
 CREATE TABLE IF NOT EXISTS seeds (
-    seed INTEGER PRIMARY KEY, -- 24-bit value
+    seed TEXT PRIMARY KEY, -- 24-bit value
     counter_size INTEGER NOT NULL DEFAULT 4096,
     counter_used INTEGER NOT NULL DEFAULT 0,
     lease_holder TEXT DEFAULT '',

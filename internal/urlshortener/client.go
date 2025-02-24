@@ -37,8 +37,8 @@ func Manager(reqCh <-chan SeedRequest) {
 		// db connection to take seed
 		// if seed is not available, ask for one
 		s := Seed{
-			seed:    "test",
-			counter: 0,
+			Seed:    "test",
+			Counter: 0,
 		}
 
 		req.ReplyCn <- s
@@ -57,14 +57,14 @@ func StartWorkers(db *sql.DB, workCh <-chan WorkRequest, seedCh chan<- SeedReque
 			}
 
 			for work := range workCh {
-				if seed == (Seed{}) || seed.counter == 4095 {
+				if seed == (Seed{}) || seed.Counter == 4095 {
 					seedCh <- request
 					seed = <-responseCh
 				}
 				// generate short string
-				short_url := base64.URLEncoding.EncodeToString([]byte(seed.seed + strconv.Itoa(seed.counter)))
+				short_url := base64.URLEncoding.EncodeToString([]byte(seed.Seed + strconv.Itoa(seed.Counter)))
 				table := UrlMapping{db: db}
-				err := table.Create(work.OriginalUrl, short_url, seed.seed, seed.counter)
+				err := table.Create(work.OriginalUrl, short_url, seed.Seed, seed.Counter)
 				if err != nil {
 					fmt.Printf("Unable to write to url_mapping. Error: %v", err)
 				}
