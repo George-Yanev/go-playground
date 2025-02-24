@@ -2,7 +2,7 @@ package urlshortener
 
 import (
 	"encoding/json"
-	"io"
+	"fmt"
 	"log"
 	"net/http"
 )
@@ -10,9 +10,12 @@ import (
 func StartHttpServer(workCh chan<- WorkRequest, shortUrlHost string) {
 	http.HandleFunc("POST /short", func(w http.ResponseWriter, r *http.Request) {
 		req := URLRequest{}
-		json.NewDecoder(r.Body).Decode(&req)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
 
-		doneCh := make(chan WorkResult, 1)
+		doneCh := make(chan WorkResponse, 1)
 
 		work := WorkRequest{
 			OriginalUrl:  req.OriginalURL,
@@ -20,9 +23,13 @@ func StartHttpServer(workCh chan<- WorkRequest, shortUrlHost string) {
 			DoneCh:       doneCh,
 		}
 		workCh <- work
-		result := <-doneCh
-		io.WriteString(w, result.ShortUrl)
-
+		resp := <-doneCh
+		if resp.Err != nil {
+			http.Error(w, fmt.Sprintf("Failed to shorten URL: %v", resp.Err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"shortened_url": resp.ShortUrl})
 	})
 
 	log.Fatal(http.ListenAndServe(":8080", nil)) // nil uses the default ServeMux

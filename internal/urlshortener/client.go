@@ -25,11 +25,12 @@ type SeedRequest struct {
 type WorkRequest struct {
 	OriginalUrl  string
 	ShortUrlHost string
-	DoneCh       chan<- WorkResult
+	DoneCh       chan<- WorkResponse
 }
 
-type WorkResult struct {
+type WorkResponse struct {
 	ShortUrl string
+	Err      error
 }
 
 type URLRequest struct {
@@ -74,11 +75,14 @@ func StartWorkers(db *sql.DB, workCh <-chan WorkRequest, seedCh chan<- SeedReque
 				err := um.Create(work.OriginalUrl, shortUrl, seed.Seed, seed.Counter)
 				if err != nil {
 					fmt.Printf("Unable to write to url_mapping. Error: %v", err)
+				} else {
+					seed.Counter += 1
 				}
-				seed.Counter += 1
 
-				wr := WorkResult{
+				// finish the response regardless of the status
+				wr := WorkResponse{
 					ShortUrl: shortUrl,
+					Err:      err,
 				}
 				work.DoneCh <- wr
 				close(work.DoneCh)
