@@ -48,6 +48,8 @@ func Manager(db *sql.DB, reqCh <-chan SeedRequest) {
 
 		log.Printf("Client: %s acquired Seed: %v\n", req.Query, seed)
 		req.ReplyCn <- seed
+
+		// house keeping. Close a seed if a client has already used one
 	}
 }
 
@@ -89,4 +91,8 @@ func StartWorkers(db *sql.DB, workCh <-chan WorkRequest, seedCh chan<- SeedReque
 			}
 		}()
 	}
+}
+
+func SyncSeedDbFromUrlMapping(db *sql.DB) error {
+	return nil
 }

@@ -34,6 +34,15 @@ func (u *UrlMapping) Create(orig_url, short_url, seed string, counter int) error
 	return err
 }
 
+func (u *UrlMapping) GetSeedCounter(seed string) (int, error) {
+	var counter int
+	r := u.db.QueryRow("SELECT counter from url_mapping WHERE seed = ? AND ORDER BY counter DESC LIMIT 1", seed)
+	if err := r.Scan(&counter); err != nil {
+		return -1, fmt.Errorf("unable to get seed counter from url_mapping: %w", err)
+	}
+	return counter, nil
+}
+
 func NewSeedsDb(db *sql.DB) *SeedsDb {
 	return &SeedsDb{db: db}
 }
@@ -42,6 +51,47 @@ func (s *SeedsDb) Create(seed string) error {
 	_, err := s.db.Exec("INSERT INTO seeds (seed) VALUES (?)", seed)
 	return err
 }
+
+func (s *SeedsDb) SetSeedStatusAndCounter(seed string, counter, status int) error {
+	_, err := s.db.Exec("UPDATE seeds SET (seed, counter_used, status) VALUES (?,?,?) WHERE seed = ?")
+	return err
+}
+
+func (s *SeedsDb) SelectSeedByStatus(status int) ([]string, error) {
+	var seeds []string
+	r, err := s.db.Query("SELECT seed FROM seeds WHERE status = ?", status)
+	if err != nil {
+		return nil, fmt.Errorf("Selecting seeds by status: %d. Err: %w", status, err)
+	}
+
+	for r.Next() {
+		var s string
+		if err := r.Scan(&s); err != nil {
+			return nil, fmt.Errorf("Scanning seed row: %w", err)
+		}
+		seeds = append(seeds, s)
+	}
+	if err := r.Err(); err != nil {
+		return nil, fmt.Errorf("Error iterating seed rows: %w", err)
+	}
+
+	return seeds, nil
+}
+
+// func (s *SeedsDb) QueryWorkerUsedSeeds(worker string) (Seeds, error) {
+// 	var seed Seed
+// 	r, err := s.db.Query("SELECT * from seeds WHERE lease_holder = ? AND status = 1", client)
+// 	if err != nil {
+// 		return Seeds{}, fmt.Errorf("Error quering for worker used seeds: %w", err)
+// 	}
+
+// 	if r.Scan(&seed)
+
+// }
+
+// func (s *SeSeedsDb) ResetSeedStatusAndSetLastCounter(seed string) error {
+
+// }
 
 func (s *SeedsDb) Acquire(holder string) (Seed, error) {
 	var acquiredSeed Seed
@@ -73,6 +123,27 @@ RETURNING seed, counter_used
 
 	return acquiredSeed, nil
 }
+
+// func (s *SeedsDb) SelectSeedsByLeaseHolder(holder string) (Seeds, error) {
+// 	var seeds Seeds
+// 	r, err := s.db.Query("SELECT seed, counter FROM seeds WHERE lease_holder = ? ORDER BY counter DESC LIMIT 1", holder)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("Selecting seeds by lease_holder: %w", err)
+// 	}
+// 	defer r.Close()
+
+// 	for r.Next() {
+// 		var s Seed
+// 		if err := r.Scan(&s.Seed, &s.Counter); err != nil {
+// 			return nil, fmt.Errorf("Scanning seed row: %w", err)
+// 		}
+// 		seeds = append(seeds, s)
+// 	}
+// 	if err := r.Err(); err != nil {
+// 		return nil, fmt.Errorf("Error iterating seed rows: %w", err)
+// 	}
+// 	return seeds, nil
+// }
 
 func InitDB() (*sql.DB, error) {
 	db, err := sql.Open("sqlite3", "file:urlshortener.db")
