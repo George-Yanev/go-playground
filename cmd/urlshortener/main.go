@@ -20,7 +20,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Cannot sync seed table from url_mapping. Error: %v", err)
 	}
-	os.Exit(0)
 
 	shortUrlHost := os.Getenv("SHORT_URL_HOST")
 	if shortUrlHost == "" {
@@ -49,11 +48,12 @@ func syncSeedFromUrlMapping(db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("Cannot get url_mapping seed counter: %w", err)
 		}
+
+		status := 0
 		if counterUsed == s.CounterSize {
-			seedDb.SetSeedStatusAndCounter(s.Seed, counterUsed, 2) // exhausted
-		} else {
-			seedDb.SetSeedStatusAndCounter(s.Seed, counterUsed, 0) // available
+			status = 2
 		}
+		seedDb.SetSeedStatusAndCounter(s.Seed, counterUsed, status)
 	}
 	return nil
 }

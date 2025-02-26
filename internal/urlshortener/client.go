@@ -71,21 +71,22 @@ func StartWorkers(db *sql.DB, workCh <-chan WorkRequest, seedCh chan<- SeedReque
 					seedCh <- request
 					seed = <-responseCh
 				}
+				fmt.Printf("Seed used is: %v\n", seed)
 				// generate short string
-				shortUrlString := base64.URLEncoding.EncodeToString([]byte(seed.Seed + strconv.Itoa(seed.CounterUsed)))
-				shortUrl := fmt.Sprintf("https://%s/%s", work.ShortUrlHost, shortUrlString)
+				cUsed := seed.CounterUsed + 1
+				sUrlPath := base64.URLEncoding.EncodeToString([]byte(seed.Seed + strconv.Itoa(cUsed)))
+				sUrl := fmt.Sprintf("https://%s/%s", work.ShortUrlHost, sUrlPath)
 				um := UrlMapping{db: db}
-				counterUsed := seed.CounterUsed + 1
-				err := um.Create(work.OriginalUrl, shortUrl, seed.Seed, counterUsed)
+				err := um.Create(work.OriginalUrl, sUrl, seed.Seed, cUsed)
 				if err != nil {
-					fmt.Printf("Unable to write to url_mapping. Error: %v", err)
+					fmt.Printf("Unable to write to url_mapping. Error: %v\n", err)
 				} else {
-					seed.CounterUsed = counterUsed
+					seed.CounterUsed = cUsed
 				}
 
 				// finish the response regardless of the status
 				wr := WorkResponse{
-					ShortUrl: shortUrl,
+					ShortUrl: sUrl,
 					Err:      err,
 				}
 				work.DoneCh <- wr
