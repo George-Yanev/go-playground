@@ -11,8 +11,9 @@ import (
 )
 
 type Seed struct {
-	Seed    string
-	Counter int
+	Seed        string
+	CounterUsed int
+	CounterSize int
 }
 
 type Seeds []Seed
@@ -66,19 +67,20 @@ func StartWorkers(db *sql.DB, workCh <-chan WorkRequest, seedCh chan<- SeedReque
 			}
 
 			for work := range workCh {
-				if seed == (Seed{}) || seed.Counter == 4095 {
+				if seed == (Seed{}) || seed.CounterUsed == seed.CounterSize {
 					seedCh <- request
 					seed = <-responseCh
 				}
 				// generate short string
-				shortUrlString := base64.URLEncoding.EncodeToString([]byte(seed.Seed + strconv.Itoa(seed.Counter)))
+				shortUrlString := base64.URLEncoding.EncodeToString([]byte(seed.Seed + strconv.Itoa(seed.CounterUsed)))
 				shortUrl := fmt.Sprintf("https://%s/%s", work.ShortUrlHost, shortUrlString)
 				um := UrlMapping{db: db}
-				err := um.Create(work.OriginalUrl, shortUrl, seed.Seed, seed.Counter)
+				counterUsed := seed.CounterUsed + 1
+				err := um.Create(work.OriginalUrl, shortUrl, seed.Seed, counterUsed)
 				if err != nil {
 					fmt.Printf("Unable to write to url_mapping. Error: %v", err)
 				} else {
-					seed.Counter += 1
+					seed.CounterUsed = counterUsed
 				}
 
 				// finish the response regardless of the status
@@ -91,8 +93,4 @@ func StartWorkers(db *sql.DB, workCh <-chan WorkRequest, seedCh chan<- SeedReque
 			}
 		}()
 	}
-}
-
-func SyncSeedDbFromUrlMapping(db *sql.DB) error {
-	return nil
 }

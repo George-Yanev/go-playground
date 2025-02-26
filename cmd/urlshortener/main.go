@@ -16,10 +16,11 @@ func main() {
 	}
 	defer db.Close()
 
-	err = urlshortener.SyncSeedDbFromUrlMapping(db)
+	err = syncSeedFromUrlMapping(db)
 	if err != nil {
-		log.Fatalf("Cannot sync seed table from url_mapping. Error: %w", err)
+		log.Fatalf("Cannot sync seed table from url_mapping. Error: %v", err)
 	}
+	os.Exit(0)
 
 	shortUrlHost := os.Getenv("SHORT_URL_HOST")
 	if shortUrlHost == "" {
@@ -34,7 +35,7 @@ func main() {
 	urlshortener.StartHttpServer(workCh, shortUrlHost)
 }
 
-func dbSync(db *sql.DB) error {
+func syncSeedFromUrlMapping(db *sql.DB) error {
 	u := urlshortener.NewUrlMapping(db)
 	seedDb := urlshortener.NewSeedsDb(db)
 
@@ -44,14 +45,14 @@ func dbSync(db *sql.DB) error {
 	}
 
 	for _, s := range seeds {
-		c, err := u.GetSeedCounter(s)
+		counterUsed, err := u.GetSeedCounter(s.Seed)
 		if err != nil {
-			fmt.Errorf("Cannot get url_mapping seed counter: %w", err)
+			return fmt.Errorf("Cannot get url_mapping seed counter: %w", err)
 		}
-		if c == 4095 {
-			seedDb.SetSeedStatusAndCounter(s, c, 2) // exhausted
+		if counterUsed == s.CounterSize {
+			seedDb.SetSeedStatusAndCounter(s.Seed, counterUsed, 2) // exhausted
 		} else {
-			seedDb.SetSeedStatusAndCounter(s, c, 0) // available
+			seedDb.SetSeedStatusAndCounter(s.Seed, counterUsed, 0) // available
 		}
 	}
 	return nil
