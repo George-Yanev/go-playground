@@ -66,7 +66,7 @@ func (s *SeedsDb) SetSeedStatusAndCounter(seed string, counter, status int) erro
 
 func (s *SeedsDb) SelectSeedByStatus(status int) (Seeds, error) {
 	var seeds Seeds
-	r, err := s.db.Query("SELECT seed FROM seeds WHERE status = ?", status)
+	r, err := s.db.Query("SELECT seed, counter_used, counter_size FROM seeds WHERE status = ?", status)
 	if err != nil {
 		return nil, fmt.Errorf("Selecting seeds by status: %d. Err: %w", status, err)
 	}
@@ -74,7 +74,7 @@ func (s *SeedsDb) SelectSeedByStatus(status int) (Seeds, error) {
 
 	for r.Next() {
 		var s Seed
-		if err := r.Scan(&s); err != nil {
+		if err := r.Scan(&s.Seed, &s.CounterUsed, &s.CounterSize); err != nil {
 			return nil, fmt.Errorf("Scanning seed row: %w", err)
 		}
 		seeds = append(seeds, s)
