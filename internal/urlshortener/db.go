@@ -26,7 +26,6 @@ func NewUrlMapping(db *sql.DB) *UrlMapping {
 }
 
 func (u *UrlMapping) Create(orig_url, short_url, seed string, counter int) error {
-	// fmt.Printf("orig_url: %s, short_url: %s, seed: %s, counter: %d\n", orig_url, short_url, seed, counter)
 	_, err := u.db.Exec(
 		"INSERT INTO url_mapping (original_url, short_url, seed, counter, created_at) "+
 			"VALUES (?,?,?,?,?)",

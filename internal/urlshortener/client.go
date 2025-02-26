@@ -71,7 +71,6 @@ func StartWorkers(db *sql.DB, workCh <-chan WorkRequest, seedCh chan<- SeedReque
 					seedCh <- request
 					seed = <-responseCh
 				}
-				fmt.Printf("Seed used is: %v\n", seed)
 				// generate short string
 				cUsed := seed.CounterUsed + 1
 				sUrlPath := base64.URLEncoding.EncodeToString([]byte(seed.Seed + strconv.Itoa(cUsed)))
