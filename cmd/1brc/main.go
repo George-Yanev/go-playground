@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 )
 
 var measurementFile = "measurements.txt"
@@ -33,6 +34,7 @@ type CalculatedPoint struct {
 type CalculatedPoints []CalculatedPoint
 
 func main() {
+	var wg sync.WaitGroup
 	// collectedData := make(map[string]CalculatedPoint)
 	f, err := os.Open(measurementFile)
 	if err != nil {
@@ -57,21 +59,36 @@ func main() {
 	fChunks[len(fChunks)-1].End = fSize
 	fmt.Printf("Chunks to read: %v\n", fChunks)
 
+	wg.Add(numReaders)
+	for _, f := range fChunks {
+		go reader(f, &wg)
+	}
+	wg.Wait()
+
 }
 
-func readers(fChunk FileChunk, readyCh <-chan bool) (*CalculatedPoints, error) {
+func reader(fChunk FileChunk, wg *sync.WaitGroup) (*CalculatedPoints, error) {
+	defer wg.Done()
+
 	collectedData := make(CalculatedPoints, 0, 10000)
 	f, err := os.Open(measurementFile)
 	if err != nil {
-		log.Fatalf("Unable to read file: %v", err)
+		return nil, fmt.Errorf("Unable to read file: %v", err)
 	}
 	for i, v := range []int64{fChunk.End, fChunk.Start} {
 		// End should end at '\n'. Start will need to start at the next line
 		r, err := alignChunkBoundaries(f, v, i)
 		if err != nil {
+			fmt.Printf("unable to align the chunk. Offset: %d. Err: %v\n", v, err)
 			return nil, fmt.Errorf("unable to align the chunk. Offset: %d. Err: %v", v, err)
 		}
+		if i == 0 {
+			fChunk.End = r
+		} else {
+			fChunk.Start = r
+		}
 	}
+	fmt.Printf("Start and End of the chunk after alignement: %v\n", fChunk)
 
 	return &collectedData, nil
 }
@@ -83,7 +100,7 @@ func alignChunkBoundaries(f *os.File, offset int64, jump int) (int64, error) {
 	}
 
 	bu := bufio.NewReader(f)
-	bs := make([]byte, 0, 30)
+	bs := make([]byte, 100)
 	_, err = bu.Read(bs)
 	if err != nil {
 		return -1, fmt.Errorf("unable to read byte from the reader. Err: %v", err)
@@ -91,7 +108,7 @@ func alignChunkBoundaries(f *os.File, offset int64, jump int) (int64, error) {
 	// start from a newline
 	s := bytes.IndexRune(bs, '\n')
 	if s == -1 {
-		return -1, fmt.Errorf("unable to find newline while readying it at Start: %d", offset)
+		return -1, fmt.Errorf("unable to find newline while reading it offset: %d", offset)
 	}
 	// index start from zero and I need to start from the next byte that's why adding +1 always
 	return int64(s + 1 + jump), nil
