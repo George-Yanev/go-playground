@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"sync"
@@ -13,8 +14,9 @@ var measurementFile = "measurements.txt"
 var numReaders = 5
 
 type FileChunk struct {
-	Start int64
-	End   int64
+	Start   int64
+	End     int64
+	FileEnd int64
 }
 
 type FileChunks []FileChunk
@@ -57,6 +59,7 @@ func main() {
 	}
 	// ensure the last FileChunk end is correct
 	fChunks[len(fChunks)-1].End = fSize
+	fChunks[len(fChunks)-1].FileEnd = fSize
 	fmt.Printf("Chunks to read: %v\n", fChunks)
 
 	wg.Add(numReaders)
@@ -76,16 +79,18 @@ func reader(fChunk FileChunk, wg *sync.WaitGroup) (*CalculatedPoints, error) {
 		return nil, fmt.Errorf("Unable to read file: %v", err)
 	}
 	for i, v := range []int64{fChunk.End, fChunk.Start} {
-		// End should end at '\n'. Start will need to start at the next line
-		r, err := alignChunkBoundaries(f, v, i)
-		if err != nil {
-			fmt.Printf("unable to align the chunk. Offset: %d. Err: %v\n", v, err)
-			return nil, fmt.Errorf("unable to align the chunk. Offset: %d. Err: %v", v, err)
-		}
-		if i == 0 {
-			fChunk.End = r
-		} else {
-			fChunk.Start = r
+		if v != fChunk.FileEnd {
+			// End should end at '\n'. Start will need to start at the next line
+			r, err := alignChunkBoundaries(f, v, i)
+			if err != nil {
+				fmt.Printf("unable to align the chunk. Offset: %d. Err: %v\n", v, err)
+				return nil, fmt.Errorf("unable to align the chunk. Offset: %d. Err: %v", v, err)
+			}
+			if i == 0 {
+				fChunk.End = r
+			} else {
+				fChunk.Start = r
+			}
 		}
 	}
 	fmt.Printf("Start and End of the chunk after alignement: %v\n", fChunk)
@@ -94,13 +99,13 @@ func reader(fChunk FileChunk, wg *sync.WaitGroup) (*CalculatedPoints, error) {
 }
 
 func alignChunkBoundaries(f *os.File, offset int64, jump int) (int64, error) {
-	_, err := f.Seek(offset, 0)
+	_, err := f.Seek(offset, io.SeekStart)
 	if err != nil {
 		return -1, fmt.Errorf("unable to change the file offset to %d. Err: %v", offset, err)
 	}
 
 	bu := bufio.NewReader(f)
-	bs := make([]byte, 100)
+	bs := make([]byte, 30)
 	_, err = bu.Read(bs)
 	if err != nil {
 		return -1, fmt.Errorf("unable to read byte from the reader. Err: %v", err)
@@ -111,5 +116,5 @@ func alignChunkBoundaries(f *os.File, offset int64, jump int) (int64, error) {
 		return -1, fmt.Errorf("unable to find newline while reading it offset: %d", offset)
 	}
 	// index start from zero and I need to start from the next byte that's why adding +1 always
-	return int64(s + 1 + jump), nil
+	return int64(offset + int64(s) + int64(1) + int64(jump)), nil
 }
