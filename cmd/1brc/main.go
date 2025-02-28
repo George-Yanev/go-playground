@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -14,9 +13,9 @@ var measurementFile = "measurements.txt"
 var numReaders = 5
 
 type FileChunk struct {
-	Start   int64
-	End     int64
-	FileEnd int64
+	Start        int64
+	End          int64
+	SkipStartEnd int64
 }
 
 type FileChunks []FileChunk
@@ -59,7 +58,7 @@ func main() {
 	}
 	// ensure the last FileChunk end is correct
 	fChunks[len(fChunks)-1].End = fSize
-	fChunks[len(fChunks)-1].FileEnd = fSize
+	fChunks[len(fChunks)-1].SkipStartEnd = fSize
 	fmt.Printf("Chunks to read: %v\n", fChunks)
 
 	wg.Add(numReaders)
@@ -79,7 +78,7 @@ func reader(fChunk FileChunk, wg *sync.WaitGroup) (*CalculatedPoints, error) {
 		return nil, fmt.Errorf("Unable to read file: %v", err)
 	}
 	for i, v := range []int64{fChunk.End, fChunk.Start} {
-		if v != fChunk.FileEnd {
+		if v != fChunk.SkipStartEnd {
 			// End should end at '\n'. Start will need to start at the next line
 			r, err := alignChunkBoundaries(f, v, i)
 			if err != nil {
@@ -99,22 +98,18 @@ func reader(fChunk FileChunk, wg *sync.WaitGroup) (*CalculatedPoints, error) {
 }
 
 func alignChunkBoundaries(f *os.File, offset int64, jump int) (int64, error) {
-	_, err := f.Seek(offset, io.SeekStart)
-	if err != nil {
+	// start offset require starting one byte before because we might be perfectly aligned
+	// and because of this we will skip a line
+	seekOffset := offset - int64(jump)
+	if _, err := f.Seek(seekOffset, io.SeekStart); err != nil {
 		return -1, fmt.Errorf("unable to change the file offset to %d. Err: %v", offset, err)
 	}
 
-	bu := bufio.NewReader(f)
-	bs := make([]byte, 30)
-	_, err = bu.Read(bs)
-	if err != nil {
-		return -1, fmt.Errorf("unable to read byte from the reader. Err: %v", err)
-	}
-	// start from a newline
-	s := bytes.IndexRune(bs, '\n')
-	if s == -1 {
-		return -1, fmt.Errorf("unable to find newline while reading it offset: %d", offset)
+	reader := bufio.NewReader(f)
+	line, err := reader.ReadBytes('\n')
+	if err != nil && err != io.EOF {
+		return 0, fmt.Errorf("read from %d: %v", seekOffset, err)
 	}
 	// index start from zero and I need to start from the next byte that's why adding +1 always
-	return int64(offset + int64(s) + int64(1) + int64(jump)), nil
+	return int64(seekOffset + int64(len(line)-1) + int64(jump)), nil
 }
