@@ -1,6 +1,7 @@
 Boise;17.6
 City of San Marino;19.5
 Malabo;15.6
+Malabo;10.6
 Nashville;21.2
 Veracruz;23.6
 Luxembourg City;18.2

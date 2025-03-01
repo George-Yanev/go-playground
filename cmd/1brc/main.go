@@ -2,10 +2,12 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"sync"
 )
 
@@ -13,9 +15,10 @@ var measurementFile = "measurements.txt"
 var numReaders = 5
 
 type FileChunk struct {
-	Start        int64
-	End          int64
-	SkipStartEnd int64
+	Start     int64
+	End       int64
+	SkipStart int64
+	SkipEnd   int64
 }
 
 type FileChunks []FileChunk
@@ -32,7 +35,7 @@ type CalculatedPoint struct {
 	Count int
 }
 
-type CalculatedPoints []CalculatedPoint
+type CalculatedPoints map[string]CalculatedPoint
 
 func main() {
 	var wg sync.WaitGroup
@@ -56,9 +59,11 @@ func main() {
 			End:   i + chunksSize,
 		})
 	}
+
+	fChunks[0].SkipStart = 0
 	// ensure the last FileChunk end is correct
 	fChunks[len(fChunks)-1].End = fSize
-	fChunks[len(fChunks)-1].SkipStartEnd = fSize
+	fChunks[len(fChunks)-1].SkipEnd = fSize
 	fmt.Printf("Chunks to read: %v\n", fChunks)
 
 	wg.Add(numReaders)
@@ -72,28 +77,78 @@ func main() {
 func reader(fChunk FileChunk, wg *sync.WaitGroup) (*CalculatedPoints, error) {
 	defer wg.Done()
 
-	collectedData := make(CalculatedPoints, 0, 10000)
+	collectedData := make(CalculatedPoints, 10000)
 	f, err := os.Open(measurementFile)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to read file: %v", err)
 	}
-	for i, v := range []int64{fChunk.End, fChunk.Start} {
-		if v != fChunk.SkipStartEnd {
-			// End should end at '\n'. Start will need to start at the next line
-			r, err := alignChunkBoundaries(f, v, i)
-			if err != nil {
-				fmt.Printf("unable to align the chunk. Offset: %d. Err: %v\n", v, err)
-				return nil, fmt.Errorf("unable to align the chunk. Offset: %d. Err: %v", v, err)
+
+	if fChunk.Start != fChunk.SkipStart {
+		r, err := alignChunkBoundaries(f, fChunk.Start, 1)
+		if err != nil {
+			fmt.Printf("unable to align the chunk. Offset: %d. Err: %v\n", 1, err)
+			return nil, fmt.Errorf("unable to align the chunk. Offset: %d. Err: %v", 1, err)
+		}
+		fChunk.Start = r
+	}
+
+	if fChunk.End != fChunk.SkipEnd {
+		r, err := alignChunkBoundaries(f, fChunk.End, 0)
+		if err != nil {
+			fmt.Printf("unable to align the chunk. Offset: %d. Err: %v\n", 0, err)
+			return nil, fmt.Errorf("unable to align the chunk. Offset: %d. Err: %v", 0, err)
+		}
+		fChunk.End = r
+	}
+	fmt.Printf("Start and End of the chunk after alignement: %v\n", fChunk)
+	// let's read :)
+	_, err = f.Seek(fChunk.Start, io.SeekStart)
+	if err != nil {
+		return nil, fmt.Errorf("cannot put the file seek position to offset: %d. Err: %v", fChunk.Start, err)
+	}
+
+	reader := bufio.NewReader(f)
+	pos := fChunk.Start
+	for pos < fChunk.End {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			fmt.Printf("unable to read a line from reader: %v\n", err)
+		}
+		pos += int64(len(line))
+
+		if bytes.ContainsRune(line, '\n') {
+			line = line[:len(line)-1]
+		}
+
+		ct := bytes.Split(line, []byte{';'})
+		city := string(ct[0])
+		tmp := string(bytes.Replace(ct[1], []byte{'.'}, []byte{}, 1))
+		temp, err := strconv.Atoi(tmp)
+		if err != nil {
+			fmt.Printf("error parsing temp from string to int: %s. Err: %v", ct, err)
+		}
+
+		if val, ok := collectedData[city]; ok {
+			if val.Min > temp {
+				val.Min = temp
 			}
-			if i == 0 {
-				fChunk.End = r
-			} else {
-				fChunk.Start = r
+			if val.Max < temp {
+				val.Max = temp
+			}
+			val.Sum += temp
+			val.Count += 1
+			collectedData[city] = val
+		} else {
+			collectedData[city] = CalculatedPoint{
+				Min:   temp,
+				Max:   temp,
+				Sum:   temp,
+				Count: 1,
 			}
 		}
 	}
-	fmt.Printf("Start and End of the chunk after alignement: %v\n", fChunk)
 
+	// fmt.Printf("goroutine collected data %v\n", collectedData)
 	return &collectedData, nil
 }
 
