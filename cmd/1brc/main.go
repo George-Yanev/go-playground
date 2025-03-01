@@ -37,6 +37,11 @@ type CalculatedPoint struct {
 
 type CalculatedPoints map[string]CalculatedPoint
 
+type Result struct {
+	Data *CalculatedPoints
+	Err  error
+}
+
 func main() {
 	var wg sync.WaitGroup
 	// collectedData := make(map[string]CalculatedPoint)
@@ -66,28 +71,44 @@ func main() {
 	fChunks[len(fChunks)-1].SkipEnd = fSize
 	fmt.Printf("Chunks to read: %v\n", fChunks)
 
+	resultCh := make(chan Result, numReaders)
 	wg.Add(numReaders)
 	for _, f := range fChunks {
-		go reader(f, &wg)
+		go reader(f, resultCh, &wg)
 	}
 	wg.Wait()
+	close(resultCh)
+
+	for d := range resultCh {
+		if err != nil {
+			log.Fatalf("stop because of an error in a reader goroutine. Err: %w", d.Err)
+		}
+	}
 
 }
 
-func reader(fChunk FileChunk, wg *sync.WaitGroup) (*CalculatedPoints, error) {
+func reader(fChunk FileChunk, resultCh chan<- Result, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	collectedData := make(CalculatedPoints, 10000)
 	f, err := os.Open(measurementFile)
 	if err != nil {
-		return nil, fmt.Errorf("Unable to read file: %v", err)
+		resultCh <- Result{
+			Data: nil,
+			Err:  fmt.Errorf("Unable to read file: %v", err),
+		}
+		return
 	}
 
 	if fChunk.Start != fChunk.SkipStart {
 		r, err := alignChunkBoundaries(f, fChunk.Start, 1)
 		if err != nil {
 			fmt.Printf("unable to align the chunk. Offset: %d. Err: %v\n", 1, err)
-			return nil, fmt.Errorf("unable to align the chunk. Offset: %d. Err: %v", 1, err)
+			resultCh <- Result{
+				Data: nil,
+				Err:  fmt.Errorf("unable to align the chunk. Offset: %d. Err: %v", 1, err),
+			}
+			return
 		}
 		fChunk.Start = r
 	}
@@ -96,7 +117,11 @@ func reader(fChunk FileChunk, wg *sync.WaitGroup) (*CalculatedPoints, error) {
 		r, err := alignChunkBoundaries(f, fChunk.End, 0)
 		if err != nil {
 			fmt.Printf("unable to align the chunk. Offset: %d. Err: %v\n", 0, err)
-			return nil, fmt.Errorf("unable to align the chunk. Offset: %d. Err: %v", 0, err)
+			resultCh <- Result{
+				Data: nil,
+				Err:  fmt.Errorf("unable to align the chunk. Offset: %d. Err: %v", 0, err),
+			}
+			return
 		}
 		fChunk.End = r
 	}
@@ -104,7 +129,11 @@ func reader(fChunk FileChunk, wg *sync.WaitGroup) (*CalculatedPoints, error) {
 	// let's read :)
 	_, err = f.Seek(fChunk.Start, io.SeekStart)
 	if err != nil {
-		return nil, fmt.Errorf("cannot put the file seek position to offset: %d. Err: %v", fChunk.Start, err)
+		resultCh <- Result{
+			Data: nil,
+			Err:  fmt.Errorf("cannot put the file seek position to offset: %d. Err: %v", fChunk.Start, err),
+		}
+		return
 	}
 
 	reader := bufio.NewReader(f)
@@ -149,7 +178,10 @@ func reader(fChunk FileChunk, wg *sync.WaitGroup) (*CalculatedPoints, error) {
 	}
 
 	// fmt.Printf("goroutine collected data %v\n", collectedData)
-	return &collectedData, nil
+	resultCh <- Result{
+		Data: &collectedData,
+		Err:  nil,
+	}
 }
 
 func alignChunkBoundaries(f *os.File, offset int64, jump int) (int64, error) {
