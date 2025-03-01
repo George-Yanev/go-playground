@@ -7,12 +7,13 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"sync"
 )
 
 var measurementFile = "measurements.txt"
-var numReaders = 5
+var numReaders = 16
 
 type FileChunk struct {
 	Start     int64
@@ -29,10 +30,11 @@ type MeasurementPoint struct {
 }
 
 type CalculatedPoint struct {
-	Max   int
-	Min   int
-	Sum   int
-	Count int
+	Max, Min, Sum, Count int
+}
+
+type FinalPoint struct {
+	Max, Min, Mean int
 }
 
 type CalculatedPoints map[string]CalculatedPoint
@@ -79,12 +81,42 @@ func main() {
 	wg.Wait()
 	close(resultCh)
 
-	for d := range resultCh {
+	finalResult := make(map[string]CalculatedPoint, 10000)
+	for data := range resultCh {
 		if err != nil {
-			log.Fatalf("stop because of an error in a reader goroutine. Err: %w", d.Err)
+			log.Fatalf("stop because of an error in a reader goroutine. Err: %v", data.Err)
+		}
+		for c, p := range *data.Data {
+			if _, ok := finalResult[c]; !ok {
+				finalResult[c] = p
+			} else {
+				// need to merge the temp points
+				f := finalResult[c]
+				f.Count += p.Count
+				f.Sum += p.Sum
+				if f.Max < p.Max {
+					f.Max = p.Max
+				}
+				if f.Min > p.Min {
+					f.Min = p.Min
+				}
+				finalResult[c] = f
+			}
 		}
 	}
-
+	// sort the result and print it
+	cities := make([]string, 0, len(finalResult))
+	for k, _ := range finalResult {
+		cities = append(cities, k)
+	}
+	// slices.SortFunc(keys, func(a, b string) int { return strings.Compare(a, b) })
+	sort.Strings(cities)
+	fmt.Printf("{")
+	for _, city := range cities {
+		c := finalResult[city]
+		fmt.Printf("%s=%.1f/%.1f/%.1f, ", city, float64(c.Min)/10, float64(c.Sum)/float64(c.Count)/10, float64(c.Max)/10)
+	}
+	fmt.Printf("}")
 }
 
 func reader(fChunk FileChunk, resultCh chan<- Result, wg *sync.WaitGroup) {
