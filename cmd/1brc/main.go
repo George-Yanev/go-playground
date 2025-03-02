@@ -192,19 +192,32 @@ func reader(fChunk FileChunk, resultCh chan<- Result, wg *sync.WaitGroup) {
 		}
 		pos += int64(len(line))
 
-		if bytes.ContainsRune(line, '\n') {
-			line = line[:len(line)-1]
+		city, tempBytes, hasSemi := bytes.Cut(line, []byte(";"))
+		if !hasSemi {
+			continue
 		}
 
-		ct := bytes.Split(line, []byte{';'})
-		city := string(ct[0])
-		tmp := string(bytes.Replace(ct[1], []byte{'.'}, []byte{}, 1))
-		temp, err := strconv.Atoi(tmp)
+		newLen := len(tempBytes)
+		// first element will never be the dot, skip it
+		// last element will never be the dot, skip it
+		for i := 1; i < newLen-1; i++ {
+			if tempBytes[i] == 46 {
+				copy(tempBytes[i:], tempBytes[i+1:])
+				newLen--
+				break
+			}
+		}
+		if tempBytes[newLen] == 10 {
+			newLen--
+		}
+		tempBytes = tempBytes[:newLen]
+
+		temp, err := strconv.Atoi(string(tempBytes[:len(tempBytes)-1]))
 		if err != nil {
-			fmt.Printf("error parsing temp from string to int: %s. Err: %v", ct, err)
+			fmt.Printf("error parsing temp from string to int: %s. Err: %v", city, err)
 		}
 
-		if val, ok := collectedData[city]; ok {
+		if val, ok := collectedData[string(city)]; ok {
 			if val.Min > temp {
 				val.Min = temp
 			}
@@ -213,9 +226,9 @@ func reader(fChunk FileChunk, resultCh chan<- Result, wg *sync.WaitGroup) {
 			}
 			val.Sum += temp
 			val.Count += 1
-			collectedData[city] = val
+			collectedData[string(city)] = val
 		} else {
-			collectedData[city] = CalculatedPoint{
+			collectedData[string(city)] = CalculatedPoint{
 				Min:   temp,
 				Max:   temp,
 				Sum:   temp,
