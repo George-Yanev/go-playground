@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"runtime/pprof"
 	"sort"
 	"strconv"
 	"sync"
@@ -46,8 +47,17 @@ type Result struct {
 
 func main() {
 	var wg sync.WaitGroup
+
+	f, err := os.Create("cpu.prof")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	pprof.StartCPUProfile(f)
+	defer pprof.StopCPUProfile()
+
 	// collectedData := make(map[string]CalculatedPoint)
-	f, err := os.Open(measurementFile)
+	f, err = os.Open(measurementFile)
 	if err != nil {
 		log.Fatalf("Unable to read file: %v", err)
 	}
@@ -78,11 +88,16 @@ func main() {
 	for _, f := range fChunks {
 		go reader(f, resultCh, &wg)
 	}
-	wg.Wait()
-	close(resultCh)
+	// wg.Wait()
+	// close(resultCh)
 
+	finish := numReaders
 	finalResult := make(map[string]CalculatedPoint, 10000)
 	for data := range resultCh {
+		finish -= 1
+		if finish == 0 {
+			close(resultCh)
+		}
 		if err != nil {
 			log.Fatalf("stop because of an error in a reader goroutine. Err: %v", data.Err)
 		}
@@ -168,7 +183,7 @@ func reader(fChunk FileChunk, resultCh chan<- Result, wg *sync.WaitGroup) {
 		return
 	}
 
-	reader := bufio.NewReader(f)
+	reader := bufio.NewReaderSize(f, 1024*4024)
 	pos := fChunk.Start
 	for pos < fChunk.End {
 		line, err := reader.ReadBytes('\n')
