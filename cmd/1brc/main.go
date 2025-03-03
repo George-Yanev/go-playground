@@ -9,7 +9,6 @@ import (
 	"os"
 	"runtime/pprof"
 	"sort"
-	"strconv"
 	"sync"
 )
 
@@ -212,7 +211,7 @@ func reader(fChunk FileChunk, resultCh chan<- Result, wg *sync.WaitGroup) {
 		}
 		tempBytes = tempBytes[:newLen]
 
-		temp, err := strconv.Atoi(string(tempBytes[:len(tempBytes)-1]))
+		temp, err := parseTempFromBytes(tempBytes)
 		if err != nil {
 			fmt.Printf("error parsing temp from string to int: %s. Err: %v", city, err)
 		}
@@ -259,4 +258,25 @@ func alignChunkBoundaries(f *os.File, offset int64, jump int) (int64, error) {
 	}
 	// index start from zero and I need to start from the next byte that's why adding +1 always
 	return int64(seekOffset + int64(len(line)-1) + int64(jump)), nil
+}
+
+func parseTempFromBytes(data []byte) (int, error) {
+	if len(data) == 0 {
+		return 0, fmt.Errorf("data byte is zero\n")
+	}
+
+	start := 0
+	if data[0] == 45 {
+		start = 1
+	}
+
+	var result int
+	for i := start; i < len(data); i++ {
+		result = result*10 + int(data[i]-48)
+	}
+
+	if start == 1 {
+		result = -result
+	}
+	return result, nil
 }
