@@ -6,15 +6,15 @@ Each project is organized in its own subfolder under cmd/, where the main.go fil
 Currently, the repository includes the following projects:
 
 ## Billion Row Challenge (1BRC)
-**Description:** Solution to the 1 Billion Row Challenge
+**Description:** Solution to the 1 Billion Row Challenge.\
 **Location:** cmd/1brc/
 
 ## Key/Value Store with TTL
-**Description:** A simple in-memory key/value store with support for time-to-live (TTL) expiration of entries.
+**Description:** A simple in-memory key/value store with support for time-to-live (TTL) expiration of entries.\
 **Location:** cmd/store/
 
 ## URL Shortener
-**Description:** A basic URL shortening service that generates short aliases for long URLs and redirects to the original links.
+**Description:** A basic URL shortening service that generates short aliases for long URLs and redirects to the original links.\
 **Location:** cmd/urlshortener/
 
 # Project Structure
