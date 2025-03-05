@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/George-Yanev/go-fun/internal/store"
+	"github.com/George-Yanev/go-playground/internal/store"
 )
 
 func main() {

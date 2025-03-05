@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/George-Yanev/go-fun/internal/urlshortener"
+	"github.com/George-Yanev/go-playground/internal/urlshortener"
 )
 
 func main() {

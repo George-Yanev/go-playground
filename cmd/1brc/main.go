@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"os"
@@ -33,15 +34,24 @@ type CalculatedPoint struct {
 	Max, Min, Sum, Count int
 }
 
-type FinalPoint struct {
-	Max, Min, Mean int
-}
+type ByteSlice []byte
 
-type CalculatedPoints map[string]CalculatedPoint
+type CalculatedPoints map[ByteSlice]CalculatedPoint
 
 type Result struct {
 	Data *CalculatedPoints
 	Err  error
+}
+
+func (b ByteSlice) Equal(other ByteSlice) bool {
+	return bytes.Equal([]byte(b), []byte(other))
+}
+
+// Hash implements hash.Hash for ByteSlice
+func (b ByteSlice) Hash() uint64 {
+	h := fnv.New64a()
+	h.Write([]byte(b))
+	return h.Sum64()
 }
 
 func main() {
@@ -91,7 +101,7 @@ func main() {
 	// close(resultCh)
 
 	finish := numReaders
-	finalResult := make(map[string]CalculatedPoint, 10000)
+	finalResult := make(CalculatedPoints, 10000)
 	for data := range resultCh {
 		finish -= 1
 		if finish == 0 {
@@ -120,8 +130,8 @@ func main() {
 	}
 	// sort the result and print it
 	cities := make([]string, 0, len(finalResult))
-	for k, _ := range finalResult {
-		cities = append(cities, k)
+	for c := range finalResult {
+		cities = append(cities, c)
 	}
 	// slices.SortFunc(keys, func(a, b string) int { return strings.Compare(a, b) })
 	sort.Strings(cities)
@@ -182,7 +192,7 @@ func reader(fChunk FileChunk, resultCh chan<- Result, wg *sync.WaitGroup) {
 		return
 	}
 
-	reader := bufio.NewReaderSize(f, 1024*4024)
+	reader := bufio.NewReaderSize(f, 4024*1024)
 	pos := fChunk.Start
 	for pos < fChunk.End {
 		line, err := reader.ReadBytes('\n')
@@ -197,8 +207,7 @@ func reader(fChunk FileChunk, resultCh chan<- Result, wg *sync.WaitGroup) {
 		}
 
 		newLen := len(tempBytes)
-		// first element will never be the dot, skip it
-		// last element will never be the dot, skip it
+		// first and last elements will never be the dot, skip them
 		for i := 1; i < newLen-1; i++ {
 			if tempBytes[i] == 46 {
 				copy(tempBytes[i:], tempBytes[i+1:])
@@ -216,7 +225,8 @@ func reader(fChunk FileChunk, resultCh chan<- Result, wg *sync.WaitGroup) {
 			fmt.Printf("error parsing temp from string to int: %s. Err: %v", city, err)
 		}
 
-		if val, ok := collectedData[string(city)]; ok {
+		cityStr := string(city)
+		if val, ok := collectedData[city]; ok {
 			if val.Min > temp {
 				val.Min = temp
 			}
@@ -225,9 +235,9 @@ func reader(fChunk FileChunk, resultCh chan<- Result, wg *sync.WaitGroup) {
 			}
 			val.Sum += temp
 			val.Count += 1
-			collectedData[string(city)] = val
+			collectedData[cityStr] = val
 		} else {
-			collectedData[string(city)] = CalculatedPoint{
+			collectedData[cityStr] = CalculatedPoint{
 				Min:   temp,
 				Max:   temp,
 				Sum:   temp,

@@ -1,4 +1,4 @@
-module github.com/George-Yanev/go-fun
+module github.com/George-Yanev/go-playground
 
 go 1.23.2
 

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/George-Yanev/go-fun/internal/cache"
+	"github.com/George-Yanev/go-playground/internal/cache"
 )
 
 // Prune mechanism
