@@ -178,12 +178,12 @@ func Print[T Printable[T]](p T) {
 	fmt.Println(p)
 }
 
-type LinkedList[T any] struct {
+type LinkedList[T comparable] struct {
 	root   *Node[T]
 	length int
 }
 
-type Node[T any] struct {
+type Node[T comparable] struct {
 	val  T
 	next *Node[T]
 }
@@ -244,7 +244,22 @@ func (n *LinkedList[T]) Insert(v T, i int) error {
 	return nil
 }
 
-func NewLinkedList[T any](in T) *LinkedList[T] {
+func (n *LinkedList[T]) Index(v T) int {
+	if n.length == 0 {
+		return -1
+	}
+
+	c := n.root
+	for i := 0; i < n.length; i++ {
+		if c.val == v {
+			return i
+		}
+		c = c.next
+	}
+	return -1
+}
+
+func NewLinkedList[T comparable](in T) *LinkedList[T] {
 	return &LinkedList[T]{}
 }
 
@@ -267,6 +282,7 @@ func main() {
 	if err := ll.Insert(1000, 6); err != nil {
 		fmt.Println(err)
 	}
+	fmt.Println("What is the index of 10?: ", ll.Index(50))
 	// fmt.Printf("%+v\n", *ll.root)
 
 	for l := ll; l.root != nil; l.root = l.root.next {
