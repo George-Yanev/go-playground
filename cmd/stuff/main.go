@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"sort"
+	"strings"
 )
 
 type path []byte
@@ -212,35 +215,41 @@ func (n *LinkedList[T]) Add(v T) {
 	nn := &Node[T]{val: v}
 	current.next = nn
 
-	// fmt.Println("root " + n.root.String())
+	// fmt.Println("root: ", n.root)
 }
 
+var ErrOutOfBounds = errors.New("index out of bounds")
+
 func (n *LinkedList[T]) Insert(v T, i int) error {
-	if i > n.length {
-		return fmt.Errorf("out of bound index: %d. Length is: %d", i, n.length)
+	if i < 0 || i > n.length {
+		return fmt.Errorf("%w: index: %d, length: %d", ErrOutOfBounds, i, n.length)
 	}
 
 	//
 	nn := &Node[T]{val: v}
-	if n.length == 0 {
-		n.root = nn
+	if err := n.insertNode(nn, i); err != nil {
+		return err
 	}
+	n.length++
+	return nil
+}
 
-	c := n.root
-	for j := 0; j < i-1; j++ {
-		c = c.next
-	}
-
+func (n *LinkedList[T]) insertNode(nn *Node[T], i int) error {
 	if i == 0 {
 		nn.next = n.root
 		n.root = nn
-		n.length++
 		return nil
 	}
 
+	c := n.root
+	if c == nil {
+		return ErrOutOfBounds
+	}
+	for j := 0; j < i-1; j++ {
+		c = c.next
+	}
 	nn.next = c.next
 	c.next = nn
-	n.length++
 	return nil
 }
 
@@ -263,31 +272,147 @@ func NewLinkedList[T comparable](in T) *LinkedList[T] {
 	return &LinkedList[T]{}
 }
 
+const data = `
+{
+	"id": "ABCD-123",
+	"first_name": "Bob",
+	"last_name": "Bobson",
+	"title": "Senior Manager"
+}
+{
+	"id": "XYZ-123",
+	"first_name": "Mary",
+	"last_name": "Maryson",
+	"title": "Vice President"
+}
+{
+	"id": "BOTX-263",
+	"first_name": "",
+	"last_name": "Garciason",
+	"title": "Manager"
+}
+{
+	"id": "HLXO-829",
+	"first_name": "Pierre",
+	"last_name": "",
+	"title": "Intern"
+}
+{
+	"id": "MOXW-821",
+	"first_name": "Franklin",
+	"last_name": "Watanabe",
+	"title": ""
+}
+{
+	"id": "",
+	"first_name": "Shelly",
+	"last_name": "Shellson",
+	"title": "CEO"
+}
+{
+	"id": "YDOD-324",
+	"first_name": "",
+	"last_name": "",
+	"title": ""
+}
+`
+
+type Employee struct {
+	ID        string `json:"id"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Title     string `json:"title"`
+}
+
+var (
+	validID      = regexp.MustCompile(`\w{4}-\d{3}`)
+	ErrInvalidId = errors.New("Invalid ID provided")
+)
+
+type ErrEmptyField struct {
+	Field string
+}
+
+func (e ErrEmptyField) Error() string {
+	return fmt.Sprintf("empty field: %s", e.Field)
+}
+
+func ValidateEmployee(e Employee) error {
+	var errs []error
+	fields := map[string]string{
+		"ID":        e.ID,
+		"FirstName": e.FirstName,
+		"LastName":  e.LastName,
+		"Title":     e.Title,
+	}
+
+	for field, value := range fields {
+		if len(value) == 0 {
+			errs = append(errs, ErrEmptyField{Field: field})
+		}
+	}
+
+	if len(e.ID) > 0 && !validID.MatchString(e.ID) {
+		errs = append(errs, fmt.Errorf("id: %s. err: %w", e.ID, ErrInvalidId))
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+
+	return errors.Join(errs...)
+}
+
 func main() {
+	//
+	// CHAPTER 9
+	//
+	d := json.NewDecoder(strings.NewReader(data))
+	count := 0
+	for d.More() {
+		count++
+		var emp Employee
+		err := d.Decode(&emp)
+		if err != nil {
+			fmt.Printf("record %d: %v\n", count, err)
+			continue
+		}
+		err = ValidateEmployee(emp)
+		if err != nil {
+			if errors.Is(err, ErrInvalidId) {
+				fmt.Println("InvalidID catched")
+			}
+			e := ErrEmptyField{}
+			if errors.As(err, &e) {
+				fmt.Println("find an empty field")
+			}
+		}
+		fmt.Printf("record %d: %+v error: %v\n", count, emp, err)
+		continue
+	}
 	//
 	// CHAPTER 8
 	//
-	ll := NewLinkedList(5)
-	ll.Add(10)
-	ll.Add(20)
-	ll.Add(30)
-	ll.Add(40)
-	// fmt.Printf("Length is: %d\n", ll.length)
-	if err := ll.Insert(50, 0); err != nil {
-		fmt.Println(err)
-	}
-	if err := ll.Insert(100, 2); err != nil {
-		fmt.Println(err)
-	}
-	if err := ll.Insert(1000, 6); err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println("What is the index of 10?: ", ll.Index(50))
-	// fmt.Printf("%+v\n", *ll.root)
+	// ll := NewLinkedList(5)
+	// ll.Add(10)
+	// ll.Add(20)
+	// ll.Add(30)
+	// ll.Add(40)
+	// // fmt.Printf("Length is: %d\n", ll.length)
+	// if err := ll.Insert(50, 0); err != nil {
+	// 	fmt.Println(err)
+	// }
+	// if err := ll.Insert(100, 2); err != nil {
+	// 	fmt.Println(err)
+	// }
+	// if err := ll.Insert(1000, 6); err != nil {
+	// 	fmt.Println(err)
+	// }
+	// fmt.Println("What is the index of 10?: ", ll.Index(50))
+	// // fmt.Printf("%+v\n", *ll.root)
 
-	for l := ll; l.root != nil; l.root = l.root.next {
-		fmt.Println(l.root.val)
-	}
+	// for l := ll; l.root != nil; l.root = l.root.next {
+	// 	fmt.Println(l.root.val)
+	// }
 
 	// Print(MyInt(5))
 	// Print(MyFloat(10.1111))
