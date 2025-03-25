@@ -1,14 +1,20 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"log/slog"
+	"math"
+	"net/http"
 	"os"
 	"regexp"
 	"sort"
-	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/exp/constraints"
 )
 
 type path []byte
@@ -362,33 +368,183 @@ func ValidateEmployee(e Employee) error {
 	return errors.Join(errs...)
 }
 
+type Number interface {
+	constraints.Integer
+	constraints.Float
+}
+
+//	func Add[T Number](a, b T) T {
+//		return int64(a) + int64(b)
+//	}
+func producer() (<-chan int, <-chan int) {
+	var wg sync.WaitGroup
+
+	out1 := make(chan int)
+	out2 := make(chan int)
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 10; i++ {
+			out1 <- i
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 10; i++ {
+			out2 <- i
+		}
+	}()
+
+	go func() {
+		wg.Wait()
+		close(out1)
+		close(out2)
+	}()
+
+	return out1, out2
+}
+
+// Global singleton instance
+var cachedSqrt *SqrtNumbers
+var once sync.Once
+
+type SqrtNumbers struct {
+	m map[int]float64
+	t int
+}
+
+func NewSqrt(total int) *SqrtNumbers {
+	once.Do(func() {
+		cachedSqrt = initSqrtNumbers(total)
+	})
+	return cachedSqrt
+}
+
+func initSqrtNumbers(total int) *SqrtNumbers {
+	m := make(map[int]float64, total)
+	for i := 0; i < total; i++ {
+		m[i] = math.Sqrt(float64(i))
+	}
+	return &SqrtNumbers{m: m, t: total}
+}
+
+func LogIpAddressMiddleware(h http.Handler, log *slog.Logger) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Info("remote client ip address", "ip", r.RemoteAddr)
+		h.ServeHTTP(w, r)
+	})
+}
+
 func main() {
+	//
+	// CHAPTER 13
+	//
+	options := &slog.HandlerOptions{Level: slog.LevelDebug}
+	handler := slog.NewJSONHandler(os.Stderr, options)
+	mySlog := slog.New(handler)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(time.Now().Format(time.RFC3339)))
+	})
+
+	s := http.Server{
+		Addr:    ":8080",
+		Handler: mux,
+	}
+	log.Fatal(s.ListenAndServe())
+
+	//
+	// CHAPTER 12
+	//
+	// sn1 := NewSqrt(5)
+	// sn2 := NewSqrt(5)
+
+	// fmt.Printf("NewSqrt1 map pointer is: %p\n", &sn1.m)
+	// fmt.Printf("NewSqrt2 map pointer is: %p\n", &sn2.m)
+	// if &sn1.m == &sn2.m {
+	// 	fmt.Println("same address")
+	// }
+	// ch1, ch2 := producer()
+	// for {
+	// 	select {
+	// 	case r1, ok := <-ch1:
+	// 		if ok {
+	// 			fmt.Println("goroutine1: output - ", r1)
+	// 		} else {
+	// 			ch1 = nil
+	// 		}
+	// 	case r2, ok := <-ch2:
+	// 		if ok {
+	// 			fmt.Println("goroutine2: output - ", r2)
+	// 		} else {
+	// 			ch2 = nil
+	// 		}
+	// 	}
+
+	// 	if ch1 == nil && ch2 == nil {
+	// 		break
+	// 	}
+
+	// }
+
+	// var wg sync.WaitGroup
+	// out := make(chan int)
+
+	// // producers
+	// wg.Add(2)
+	// for i := 0; i < 2; i++ {
+	// 	go func() {
+	// 		defer wg.Done()
+	// 		for j := 0; j < 10; j++ {
+	// 			out <- j
+	// 		}
+	// 	}()
+	// }
+
+	// // consumer
+	// s := make([]int, 0)
+	// go func() {
+	// 	for v := range out {
+	// 		s = append(s, v)
+	// 	}
+	// }()
+
+	// wg.Wait()
+	// fmt.Println(s)
+
+	//
+	// CHAPTER 10
+	//
+
 	//
 	// CHAPTER 9
 	//
-	d := json.NewDecoder(strings.NewReader(data))
-	count := 0
-	for d.More() {
-		count++
-		var emp Employee
-		err := d.Decode(&emp)
-		if err != nil {
-			fmt.Printf("record %d: %v\n", count, err)
-			continue
-		}
-		err = ValidateEmployee(emp)
-		if err != nil {
-			if errors.Is(err, ErrInvalidId) {
-				fmt.Println("InvalidID catched")
-			}
-			e := ErrEmptyField{}
-			if errors.As(err, &e) {
-				fmt.Println("find an empty field")
-			}
-		}
-		fmt.Printf("record %d: %+v error: %v\n", count, emp, err)
-		continue
-	}
+	// d := json.NewDecoder(strings.NewReader(data))
+	// count := 0
+	// for d.More() {
+	// 	count++
+	// 	var emp Employee
+	// 	err := d.Decode(&emp)
+	// 	if err != nil {
+	// 		fmt.Printf("record %d: %v\n", count, err)
+	// 		continue
+	// 	}
+	// 	err = ValidateEmployee(emp)
+	// 	if err != nil {
+	// 		if errors.Is(err, ErrInvalidId) {
+	// 			fmt.Println("InvalidID catched")
+	// 		}
+	// 		e := ErrEmptyField{}
+	// 		if errors.As(err, &e) {
+	// 			fmt.Println("find an empty field")
+	// 		}
+	// 	}
+	// 	fmt.Printf("record %d: %+v error: %v\n", count, emp, err)
+	// 	continue
+	// }
 	//
 	// CHAPTER 8
 	//
