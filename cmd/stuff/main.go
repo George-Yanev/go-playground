@@ -1,12 +1,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"math"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"regexp"
@@ -437,24 +438,141 @@ func LogIpAddressMiddleware(h http.Handler, log *slog.Logger) http.Handler {
 	})
 }
 
+func TimeoutMiddleware(ms int) func(http.Handler) http.Handler {
+	return func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			ctx, cancelFunc := context.WithTimeout(ctx, time.Duration(ms)*time.Millisecond)
+			defer cancelFunc()
+			r = r.WithContext(ctx)
+			h.ServeHTTP(rw, r)
+		})
+	}
+}
+
+type response struct {
+	DayOfWeek  string `json:"day_of_week"`
+	DayOfMonth int    `json:"day_of_month"`
+	Month      string `json:"month"`
+	Year       int    `json:"year"`
+	Hour       int    `json:"hour"`
+	Minute     int    `json:"minute"`
+	Second     int    `json:"second"`
+}
+
+type Result struct {
+	Iterations int
+	Sum        int
+}
+
+func RandomGen(ctx context.Context, max int) (Result, error) {
+	var result Result
+
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("total:", result.Sum, "number of iterations:", result.Iterations, ctx.Err())
+			return result, ctx.Err()
+		default:
+			rnd := rand.IntN(max)
+			if rnd == 1234 {
+				fmt.Println("total:", result.Sum, "number of iterations:", result.Iterations, ctx.Err())
+				return result, nil
+			}
+			result.Iterations++
+			result.Sum += rnd
+		}
+	}
+}
+
+type Level string
+type logKey int
+
+const (
+	_ logKey = iota
+	key
+
+	Debug Level = "debug"
+	Info  Level = "info"
+)
+
+func ContextWithLevel(ctx context.Context, level string) context.Context {
+	return context.WithValue(ctx, key, level)
+}
+
+func LevelFromContext(ctx context.Context) (Level, bool) {
+	level, ok := ctx.Value(key).(Level)
+	return level, ok
+}
+
+func GetParamMiddleware(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		level := r.URL.Query().Get("log_level")
+		ctx := r.Context()
+		ctx = ContextWithLevel(ctx, level)
+		r = r.WithContext(ctx)
+		h.ServeHTTP(rw, r)
+	})
+}
+
+func Log(ctx context.Context, level Level, message string) {
+	inLevel, ok := LevelFromContext(ctx)
+	if !ok {
+		return
+	}
+	// TODO get a logging level out of the context and assign it to inLevel if level == Debug && inLevel == Debug {
+	if level == Debug && inLevel == Debug {
+		fmt.Println(message)
+	}
+
+	if level == Info && (inLevel == Debug || inLevel == Info) {
+		fmt.Println(message)
+	}
+}
+
 func main() {
+	//
+	// CHAPTER 14
+	//
+
+	// ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	// defer cancel()
+	// fmt.Println(RandomGen(ctx, 100_000_000))
+
 	//
 	// CHAPTER 13
 	//
-	options := &slog.HandlerOptions{Level: slog.LevelDebug}
-	handler := slog.NewJSONHandler(os.Stderr, options)
-	mySlog := slog.New(handler)
+	// options := &slog.HandlerOptions{Level: slog.LevelDebug}
+	// handler := slog.NewJSONHandler(os.Stderr, options)
+	// mySlog := slog.New(handler)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(time.Now().Format(time.RFC3339)))
-	})
+	// mux := http.NewServeMux()
+	// mux.Handle("/", LogIpAddressMiddleware(
+	// 	http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// 		t := time.Now()
+	// 		rsp := response{
+	// 			DayOfWeek:  t.Weekday().String(),
+	// 			DayOfMonth: t.Day(),
+	// 			Month:      t.Month().String(),
+	// 			Year:       t.Year(),
+	// 			Hour:       t.Hour(),
+	// 			Minute:     t.Minute(),
+	// 			Second:     t.Second(),
+	// 		}
+	// 		j, err := json.Marshal(rsp)
+	// 		if err != nil {
+	// 			log.Fatalf("oops, unable to Marshal the time: %v", err)
+	// 		}
+	// 		w.Header().Add("Accept-Header", "application/json")
+	// 		w.Header().Add("Content-Type", "application/json")
+	// 		w.Write(j)
+	// 	}), mySlog))
 
-	s := http.Server{
-		Addr:    ":8080",
-		Handler: mux,
-	}
-	log.Fatal(s.ListenAndServe())
+	// s := http.Server{
+	// 	Addr:    ":8080",
+	// 	Handler: mux,
+	// }
+	// log.Fatal(s.ListenAndServe())
 
 	//
 	// CHAPTER 12
