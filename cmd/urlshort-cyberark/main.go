@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand/v2"
 	"net/http"
+	"strings"
 )
 
 type Request struct {
@@ -19,6 +20,9 @@ type Response struct {
 }
 
 func main() {
+	allowedCh := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	allowedChSlice := strings.Split(allowedCh, "")
+	cache := make(map[string]string)
 
 	// database
 
@@ -30,16 +34,26 @@ func main() {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		}
 
-		cache := make(map[int]string)
-		rnd := rand.IntN(1_000_000_000)
-		_, ok := cache[rnd]
-		if !ok {
-			cache[rnd] = req.OriginalUrl
+		// get the seed
+
+		// get our locally generated characters
+		rndChars := generateRandomUrlCharacters(3, allowedChSlice)
+		var uFound bool
+		for i := 0; i < 3; i++ {
+			if _, ok := cache[rndChars]; !ok {
+				cache[rndChars] = req.OriginalUrl
+				uFound = true
+				break
+			}
 		}
 
+		if !uFound {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 
 		rsp := Response{
-			ShortCode:   "abc123",
+			ShortCode:   rndChars
 			ShortUrl:    "http://short",
 			OriginalUrl: req.OriginalUrl,
 		}
@@ -51,4 +65,13 @@ func main() {
 	http.Handle("POST /api/shorten", postRequest)
 
 	log.Fatal(http.ListenAndServe(":5000", nil))
+}
+
+func generateRandomUrlCharacters(length int, ch []string) string {
+	var b strings.Builder
+	for i := 0; i < length; i++ {
+		n := rand.IntN(len(ch))
+		b.WriteString(ch[n])
+	}
+	return b.String()
 }
