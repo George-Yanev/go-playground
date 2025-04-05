@@ -35,7 +35,7 @@ type WorkResponse struct {
 }
 
 type URLRequest struct {
-	OriginalURL string `json:"original_url"`
+	OriginalURL string `json:"url"`
 }
 
 func Manager(db *sql.DB, reqCh <-chan SeedRequest) {
