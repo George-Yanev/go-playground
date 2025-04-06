@@ -10,11 +10,6 @@ import (
 	"strings"
 )
 
-type LocalRequest struct {
-	Url     string
-	ReplyCh chan LocalResponse
-}
-
 type LocalResponse struct {
 	Url  string
 	Seed string
@@ -23,6 +18,7 @@ type LocalResponse struct {
 
 type Request struct {
 	OriginalUrl string `json:"url"`
+	ReplyCh     chan LocalResponse
 }
 
 type Response struct {
@@ -32,33 +28,29 @@ type Response struct {
 	OriginalUrl string `json:"url"`
 }
 
+const (
+	BufferedItems   = 100
+	LocalSeedLength = 5
+)
+
+var cache = make(map[string]string, BufferedItems)
+var allowed = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+var allowedSlice = strings.Split(allowed, "")
+
 func main() {
-	allowedCh := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-	allowedChSlice := strings.Split(allowedCh, "")
-	cache := make(map[string]string)
-	seedCh := make(chan LocalRequest, 100)
+	seedCh := make(chan Request, 100)
 
 	go func(length int) {
-		err := errors.New("Unable to generate random seed")
 		var lResponse LocalResponse
 		// get remote seed
 		// generate some local seeds
 		for req := range seedCh {
-			var uFound bool
-			var rndChars string
-			for i := 0; i < 3; i++ {
-				rndChars = generateRandomUrlCharacters(length, allowedChSlice)
-				if _, ok := cache[rndChars]; !ok {
-					cache[rndChars] = req.Url
-					uFound = true
-					break
-				}
-			}
-			if !uFound {
+			seed, err := bufferedRandomUrlCharacters(req.OriginalUrl)
+			if err != nil {
 				lResponse.Err = err
 			}
-			lResponse.Seed = rndChars
-			lResponse.Url = req.Url
+			lResponse.Seed = seed
+			lResponse.Url = req.OriginalUrl
 			req.ReplyCh <- lResponse
 			close(req.ReplyCh)
 		}
@@ -72,19 +64,23 @@ func main() {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		}
 
+		// Validation logic
+		if req.OriginalUrl == "" {
+			http.Error(w, "field 'url' is mandatory and must be provided", http.StatusBadRequest)
+			return
+		}
+
 		// get the seed
 		respCh := make(chan LocalResponse, 1)
-		localReq := LocalRequest{
-			Url:     req.OriginalUrl,
-			ReplyCh: respCh,
-		}
-		seedCh <- localReq
+		req.ReplyCh = respCh
+		seedCh <- req
 		// wait
 		lRsp := <-respCh
 		fmt.Println(lRsp)
 
 		w.Header().Set("Content-Type", "application/json")
 		if lRsp.Err != nil {
+			http.Error(w, "unable to provide short url", http.StatusInternalServerError)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -103,11 +99,35 @@ func main() {
 	log.Fatal(http.ListenAndServe(":5000", nil))
 }
 
-func generateRandomUrlCharacters(length int, ch []string) string {
+func generateRandomUrlCharacters() string {
 	var b strings.Builder
-	for i := 0; i < length; i++ {
-		n := rand.IntN(len(ch))
-		b.WriteString(ch[n])
+	for i := 0; i < LocalSeedLength; i++ {
+		n := rand.IntN(len(allowedSlice))
+		b.WriteString(allowedSlice[n])
 	}
 	return b.String()
+}
+
+func bufferedRandomUrlCharacters(url string) (string, error) {
+	if len(cache) <= BufferedItems/2 {
+		for i := 0; i < BufferedItems; i++ {
+			rnd := generateRandomUrlCharacters()
+			if _, ok := cache[rnd]; !ok {
+				cache[rnd] = url
+			}
+		}
+	}
+
+	if len(cache) == 0 {
+		return "", errors.New("no random item to return")
+	}
+
+	var key string
+	for k := range cache {
+		key = k
+		delete(cache, key)
+		break
+	}
+
+	return key, nil
 }
