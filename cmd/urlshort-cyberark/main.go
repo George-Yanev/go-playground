@@ -40,12 +40,15 @@ var allowedSlice = strings.Split(allowed, "")
 func main() {
 	seedCh := make(chan Request, 100)
 
+	// buffered map for the random generated seeds
+	bufferedCache := make(map[string]struct{}, BufferedItems)
+
 	go func(length int) {
 		var lResponse LocalResponse
 		// get remote seed
 		// generate some local seeds
 		for req := range seedCh {
-			seed, err := bufferedRandomUrlCharacters(req.OriginalUrl)
+			seed, err := bufferedRandomUrlCharacters(length, bufferedCache)
 			if err != nil {
 				lResponse.Err = err
 			}
@@ -54,7 +57,7 @@ func main() {
 			req.ReplyCh <- lResponse
 			close(req.ReplyCh)
 		}
-	}(5)
+	}(LocalSeedLength)
 
 	// HTTP server
 	postRequest := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,29 +94,43 @@ func main() {
 			OriginalUrl: req.OriginalUrl,
 		}
 
+		cache[rsp.ShortCode] = rsp.ShortUrl
 		json.NewEncoder(w).Encode(rsp)
 	})
 
+	getRequest := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		if v, ok := cache[path]; !ok {
+			http.Error(w, "no short_url exists for this code", http.StatusBadRequest)
+			return
+		} else {
+			http.Redirect(w, r, v, http.StatusFound)
+		}
+
+	})
+
 	http.Handle("POST /api/shorten", postRequest)
+	http.Handle("GET /", http.StripPrefix("/", getRequest))
 
 	log.Fatal(http.ListenAndServe(":5000", nil))
 }
 
-func generateRandomUrlCharacters() string {
+func generateRandomUrlCharacters(length int) string {
 	var b strings.Builder
-	for i := 0; i < LocalSeedLength; i++ {
+	for i := 0; i < length; i++ {
 		n := rand.IntN(len(allowedSlice))
 		b.WriteString(allowedSlice[n])
 	}
 	return b.String()
 }
 
-func bufferedRandomUrlCharacters(url string) (string, error) {
+func bufferedRandomUrlCharacters(seedLength int, cache map[string]struct{}) (string, error) {
 	if len(cache) <= BufferedItems/2 {
 		for i := 0; i < BufferedItems; i++ {
-			rnd := generateRandomUrlCharacters()
+			rnd := generateRandomUrlCharacters(seedLength)
 			if _, ok := cache[rnd]; !ok {
-				cache[rnd] = url
+				cache[rnd] = struct{}{}
 			}
 		}
 	}
